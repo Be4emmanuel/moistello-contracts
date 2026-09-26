@@ -218,6 +218,13 @@ pub enum CircleError {
     DutchAuctionNotConfigured = 60,
     DutchAuctionExpired = 61,
     InvalidDutchConfig = 62,
+    // #350: explicit over/underpayment errors
+    Overpayment = 63,
+    Underpayment = 64,
+    // #348: transfer failure
+    TransferFailed = 65,
+    // #357: immutable fields cannot be updated
+    MetadataImmutable = 66,
 }
 
 impl CircleError {
@@ -271,6 +278,10 @@ impl CircleError {
             CircleError::DutchAuctionNotConfigured => (60, "Dutch auction not configured"),
             CircleError::DutchAuctionExpired => (61, "Dutch auction expired"),
             CircleError::InvalidDutchConfig => (62, "Invalid Dutch auction config"),
+            CircleError::Overpayment => (63, "Amount exceeds expected contribution"),
+            CircleError::Underpayment => (64, "Amount is less than expected contribution"),
+            CircleError::TransferFailed => (65, "Token transfer failed"),
+            CircleError::MetadataImmutable => (66, "Field cannot be updated after circle creation"),
         };
         ErrorEnvelope::new(env, code, msg, details, request_id)
     }
@@ -320,6 +331,10 @@ impl CircleError {
             60 => Some(CircleError::DutchAuctionNotConfigured),
             61 => Some(CircleError::DutchAuctionExpired),
             62 => Some(CircleError::InvalidDutchConfig),
+            63 => Some(CircleError::Overpayment),
+            64 => Some(CircleError::Underpayment),
+            65 => Some(CircleError::TransferFailed),
+            66 => Some(CircleError::MetadataImmutable),
             _ => None,
         }
     }
@@ -421,6 +436,33 @@ pub struct OracleFallbackUsed {
 }
 #[contracttype]
 #[derive(Clone, Debug)]
+/// #348: emitted when a token transfer in trigger_payout fails so listeners
+/// can detect the inconsistent state and initiate recovery.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PayoutFailed {
+    pub recipient: Address,
+    pub round: u32,
+    pub amount: i128,
+    pub reason_code: u32,
+}
+/// #351: emitted when a circle completes and all active members receive a
+/// reputation graduation boost via the reputation registry.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct CircleGraduated {
+    pub circle_id: Address,
+    pub member_count: u32,
+    pub total_payouts: i128,
+    pub boost_applied: bool,
+}
+/// #357: emitted when the organizer successfully updates mutable circle metadata.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct MetadataUpdated {
+    pub updater: Address,
+    pub field: soroban_sdk::String,
+}
 pub struct LatePenaltyApplied {
     pub member: Address,
     pub round: u32,
