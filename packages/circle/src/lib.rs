@@ -3,6 +3,9 @@
 // re-exported `load_round_details` from payout.rs) are caught at compile time
 // rather than silently emitting warnings that can be overlooked.
 #![deny(unused_imports)]
+#[cfg(test)]
+#[path = "../../../circle.rs"]
+pub mod circle_rs;
 mod contract;
 mod oracle;
 mod payout;
@@ -10,9 +13,6 @@ mod payout;
 mod test;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-#[path = "../../../circle.rs"]
-pub mod circle_rs;
 mod types;
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env};
 

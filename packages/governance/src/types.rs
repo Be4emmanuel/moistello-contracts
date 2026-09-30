@@ -10,6 +10,7 @@ pub enum ProposalStatus {
     Executed,
     Defeated,
     Cancelled,
+    Expired,
 }
 
 #[contracttype]
@@ -19,6 +20,13 @@ pub enum VoteType {
     Against,
     Abstain,
 }
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ProposalAction {
+    pub target_contract: Address,
+    pub method: Symbol,
+    pub args: Vec<Val>,
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -47,6 +55,11 @@ pub struct Proposal {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+pub struct Proposal {
+    pub id: u64,
+    pub proposer: Address,
+    pub deposit_amount: i128,
+    pub action: ProposalAction,
 pub struct ProposalMetadata {
     pub id: u64,
     pub proposer: Address,
@@ -55,6 +68,9 @@ pub struct ProposalMetadata {
     pub created_at: u64,
     pub voting_ends_at: u64,
     pub timelock_ends_at: u64,
+    pub votes_for: i128,
+    pub votes_against: i128,
+    pub votes_abstain: i128,
 }
 
 #[contracttype]

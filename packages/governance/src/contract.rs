@@ -513,6 +513,71 @@ pub fn cancel_proposal(
     Ok(())
 }
 
+/// Execution grace period / window after deadline before an unexecuted proposal expires (7 days).
+pub const PROPOSAL_EXECUTION_WINDOW: u64 = 604_800;
+
+/// Permissionless finalization / state cleanup of expired proposals past deadline without execution.
+/// Refunds creation deposit and emits ProposalExpired event.
+pub fn expire_proposal(env: &Env, proposal_id: u64) -> Result<(), GovernanceError> {
+    pause::when_not_paused(env).map_err(|_| GovernanceError::ContractPaused)?;
+    let mut proposal: Proposal = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Proposal(proposal_id))
+        .ok_or(GovernanceError::ProposalNotFound)?;
+
+    let now = env.ledger().timestamp();
+    let is_expired = match proposal.status {
+        ProposalStatus::Active => {
+            let deadline = proposal
+                .voting_ends_at
+                .checked_add(PROPOSAL_EXECUTION_WINDOW)
+                .ok_or(GovernanceError::InvalidConfig)?;
+            now > deadline
+        }
+        ProposalStatus::Queued => {
+            let deadline = proposal
+                .timelock_ends_at
+                .checked_add(PROPOSAL_EXECUTION_WINDOW)
+                .ok_or(GovernanceError::InvalidConfig)?;
+            now > deadline
+        }
+        _ => false,
+    };
+
+    if !is_expired {
+        return Err(GovernanceError::ProposalNotExpired);
+    }
+
+    let old_status = proposal.status.clone();
+    proposal.status = ProposalStatus::Expired;
+    remove_proposal_from_status_index(env, &old_status, proposal_id);
+    add_proposal_to_status_index(env, &ProposalStatus::Expired, proposal_id);
+    env.storage()
+        .persistent()
+        .set(&DataKey::Proposal(proposal_id), &proposal);
+
+    let deposit_amount = proposal.deposit_amount;
+    env.storage()
+        .persistent()
+        .remove(&DataKey::Deposit(proposal_id));
+
+    ProposalExpired {
+        id: proposal_id,
+        proposer: proposal.proposer.clone(),
+        deposit_refunded: deposit_amount,
+    }
+    .publish(env);
+
+    ProposalStatusChanged {
+        id: proposal_id,
+        status: ProposalStatus::Expired,
+    }
+    .publish(env);
+
+    Ok(())
+}
+
 /// Queues a `GovernanceConfig` change, executable no sooner than
 /// `CONFIG_TIMELOCK_SECONDS` (48h) from now. Only one update may be queued
 /// at a time — cancel the pending one first to replace it — so the

@@ -45,6 +45,9 @@ impl Governance {
     ) -> Result<(), types::GovernanceError> {
         contract::cancel_proposal(&env, &caller, proposal_id)
     }
+    pub fn expire_proposal(env: Env, proposal_id: u64) -> Result<(), types::GovernanceError> {
+        contract::expire_proposal(&env, proposal_id)
+    }
     pub fn queue_config_update(
         env: Env,
         admin: Address,

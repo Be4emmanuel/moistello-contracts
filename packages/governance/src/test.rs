@@ -320,6 +320,47 @@ mod tests {
             method: Symbol::new(&env, "noop"),
             args: Vec::new(&env),
         };
+        let description = BytesN::from_array(&env, &[3u8; 32]);
+        let id = client.create_proposal(
+            &admin,
+            &create_config().proposal_deposit,
+            &action,
+            &description,
+        );
+
+        // Attempt to expire while active and before voting period + execution window ends
+        let result = client.try_expire_proposal(&id);
+        assert_eq!(result, Err(Ok(GovernanceError::ProposalNotExpired)));
+    }
+
+    #[test]
+    fn test_expire_proposal_past_deadline_succeeds_with_refund() {
+        let env = Env::default();
+        let (client, admin) = setup(&env);
+        let config = create_config();
+        let action = governance::types::ProposalAction {
+            target_contract: admin.clone(),
+            method: Symbol::new(&env, "noop"),
+            args: Vec::new(&env),
+        };
+        let description = BytesN::from_array(&env, &[4u8; 32]);
+        let id = client.create_proposal(&admin, &config.proposal_deposit, &action, &description);
+
+        // Advance timestamp past voting_ends_at + PROPOSAL_EXECUTION_WINDOW (7 days = 604,800s)
+        let execution_window = 604_800u64;
+        let expire_time =
+            env.ledger().timestamp() + config.voting_period_seconds + execution_window + 1;
+        env.ledger().set_timestamp(expire_time);
+
+        client.expire_proposal(&id);
+
+        let proposal = client.get_proposal(&id);
+        assert_eq!(proposal.status, ProposalStatus::Expired);
+
+        // Expired proposals can be queried by status
+        let expired_list = client.get_proposals(&ProposalStatus::Expired, &10);
+        assert_eq!(expired_list.len(), 1);
+        assert_eq!(expired_list.get(0).unwrap().id, id);
 
         let first_description = BytesN::from_array(&env, &[1u8; 32]);
         let second_description = BytesN::from_array(&env, &[2u8; 32]);
