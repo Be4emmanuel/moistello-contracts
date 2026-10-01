@@ -3,6 +3,9 @@
 // re-exported `load_round_details` from payout.rs) are caught at compile time
 // rather than silently emitting warnings that can be overlooked.
 #![deny(unused_imports)]
+#[cfg(test)]
+#[path = "../../../circle.rs"]
+pub mod circle_rs;
 mod contract;
 mod oracle;
 mod payout;
@@ -38,6 +41,9 @@ impl Circle {
     ) -> Result<(), types::CircleError> {
         contract::contribute(&env, &member, amount, round)
     }
+    pub fn check_contribution_deadline(env: Env) -> Result<(), types::CircleError> {
+        contract::check_contribution_deadline(&env)
+    }
     pub fn trigger_payout(env: Env, caller: Address, round: u32) -> Result<(), types::CircleError> {
         contract::trigger_payout(&env, &caller, round)
     }
@@ -48,6 +54,16 @@ impl Circle {
         round: u32,
     ) -> Result<(), types::CircleError> {
         contract::auction_bid(&env, &bidder, discount_bips, round)
+    }
+    /// Refunds a capped batch of losing auction deposits. Returns how many
+    /// losers remain; call again until the result is 0 (#436).
+    pub fn refund_losing_bids(
+        env: Env,
+        caller: Address,
+        round: u32,
+        limit: u32,
+    ) -> Result<u32, types::CircleError> {
+        contract::refund_losing_bids(&env, &caller, round, limit)
     }
     pub fn init_dutch_auction(
         env: Env,
@@ -126,6 +142,9 @@ impl Circle {
     }
     pub fn get_status(env: Env) -> types::Circle {
         contract::get_status(&env)
+    }
+    pub fn get_dispute_resolution(env: Env) -> Option<types::DisputeResolutionRecord> {
+        contract::get_dispute_resolution(&env)
     }
     pub fn get_members(env: Env) -> soroban_sdk::Vec<types::Member> {
         contract::get_members(&env)

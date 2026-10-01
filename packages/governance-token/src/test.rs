@@ -2,10 +2,10 @@
 
 #[cfg(test)]
 mod tests {
-    use soroban_sdk::{Address, Env, String};
-    use soroban_sdk::testutils::Address as _;
     use crate as governance_token;
     use governance_token::{GovernanceToken, GovernanceTokenClient};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, Env, String};
 
     fn setup(env: &Env) -> (Address, GovernanceTokenClient) {
         let admin = Address::generate(env);
@@ -217,6 +217,21 @@ mod tests {
         let holder = Address::generate(&env);
         env.mock_all_auths();
         client.mint(&admin, &holder, &1_000_0000000i128);
+        client.clawback(&admin, &holder, &400_0000000i128);
+        assert_eq!(client.balance(&holder), 600_0000000i128);
+        assert_eq!(client.total_supply(), 600_0000000i128);
+    }
+
+    #[test]
+    fn test_clawback_from_frozen_account_permitted() {
+        let env = Env::default();
+        let (admin, client) = setup(&env);
+        let holder = Address::generate(&env);
+        env.mock_all_auths();
+        client.mint(&admin, &holder, &1_000_0000000i128);
+        client.freeze(&admin, &holder);
+        assert!(client.is_frozen(&holder));
+        // Admin clawback succeeds even on frozen accounts (intentional regulatory override)
         client.clawback(&admin, &holder, &400_0000000i128);
         assert_eq!(client.balance(&holder), 600_0000000i128);
         assert_eq!(client.total_supply(), 600_0000000i128);
@@ -474,6 +489,8 @@ mod tests {
 
         assert!(client.try_set_allowlist_mode(&not_admin, &true).is_err());
         assert!(client.try_add_to_allowlist(&not_admin, &account).is_err());
-        assert!(client.try_remove_from_allowlist(&not_admin, &account).is_err());
+        assert!(client
+            .try_remove_from_allowlist(&not_admin, &account)
+            .is_err());
     }
 }

@@ -14,6 +14,7 @@ pub const MEMBER_DEFAULTED: u32 = 2;
 pub const RESOLVE_DISMISS: u32 = 1;
 pub const RESOLVE_PENALIZE: u32 = 2;
 pub const RESOLVE_FORCE_PAYOUT: u32 = 3;
+pub const RESOLVE_REFUND: u32 = 4;
 pub const AUCTION_MODE_ENGLISH: u32 = 0;
 pub const AUCTION_MODE_DUTCH: u32 = 1;
 #[contracttype]
@@ -110,6 +111,9 @@ pub struct AuctionBid {
     pub discount_bips: u32,
     pub round: u32,
     pub timestamp: u64,
+    /// Tokens escrowed with the bid. Refunded to losing bidders in batches
+    /// after the auction resolves (`refund_losing_bids`).
+    pub deposit: i128,
 }
 /// Configuration for a Dutch-style auction on `round`: `discount_bips` starts at
 /// `start_bips` at `start_ledger` and decays by `decay_bips_per_ledger` per elapsed
@@ -146,6 +150,15 @@ pub struct DisputeEntry {
     pub resolved_by: Address,
 }
 #[contracttype]
+#[derive(Clone, Debug)]
+pub struct DisputeResolutionRecord {
+    pub raised_by: Address,
+    pub resolution: u32,
+    pub outcome_code: u32,
+    pub resolved_by: Address,
+    pub resolved_at: u64,
+}
+#[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Circle,
@@ -157,6 +170,7 @@ pub enum DataKey {
     Bids,
     Votes,
     Dispute,
+    DisputeResolution,
     FeeBps,
     Treasury,
     Allowlist,
@@ -170,6 +184,15 @@ pub enum DataKey {
     PayoutScheduled(u32),
     DutchAuction(u32),
     RoundFeeLedger(u32),
+    /// Winner of a resolved English auction for this round. Presence means
+    /// losing-bid refunds may begin.
+    AuctionWinner(u32),
+    /// #325: holds the round number most recently swept by
+    /// `check_contribution_deadline`. Kept as a single instance entry rather
+    /// than one persistent entry per round, because a sweep resolves the round
+    /// immediately and long-running circles would otherwise accumulate an
+    /// entry per round against the ledger-entry budget.
+    RoundEnforced,
 }
 pub use common::types::ErrorEnvelope;
 #[contracterror]
@@ -218,13 +241,26 @@ pub enum CircleError {
     DutchAuctionNotConfigured = 60,
     DutchAuctionExpired = 61,
     InvalidDutchConfig = 62,
+    /// Losing-bid refunds were requested before the auction winner was recorded.
+    AuctionNotResolved = 63,
+    /// #329: the round cannot be resolved yet because at least one active
+    /// member has not contributed and the contribution window is still open.
+    InvalidContributionRound = 64,
+    /// #325: deadline enforcement was requested before the round's
+    /// contribution window (deadline plus grace) had actually closed.
+    DeadlineNotPassed = 65,
+    /// #323: a guarded entry point was re-entered while already executing.
+    /// Defence in depth only — the Soroban host already prohibits re-entering
+    /// a contract that is on the call stack, so this should be unreachable
+    /// while that host policy holds. See the module docs in `contract.rs`.
+    ReentrantCall = 66,
     // #350: explicit over/underpayment errors
-    Overpayment = 63,
-    Underpayment = 64,
+    Overpayment = 67,
+    Underpayment = 68,
     // #348: transfer failure
-    TransferFailed = 65,
+    TransferFailed = 69,
     // #357: immutable fields cannot be updated
-    MetadataImmutable = 66,
+    MetadataImmutable = 70,
 }
 
 impl CircleError {
@@ -278,10 +314,14 @@ impl CircleError {
             CircleError::DutchAuctionNotConfigured => (60, "Dutch auction not configured"),
             CircleError::DutchAuctionExpired => (61, "Dutch auction expired"),
             CircleError::InvalidDutchConfig => (62, "Invalid Dutch auction config"),
-            CircleError::Overpayment => (63, "Amount exceeds expected contribution"),
-            CircleError::Underpayment => (64, "Amount is less than expected contribution"),
-            CircleError::TransferFailed => (65, "Token transfer failed"),
-            CircleError::MetadataImmutable => (66, "Field cannot be updated after circle creation"),
+            CircleError::AuctionNotResolved => (63, "Auction not resolved"),
+            CircleError::InvalidContributionRound => (64, "Round has outstanding contributions"),
+            CircleError::DeadlineNotPassed => (65, "Contribution deadline not passed"),
+            CircleError::ReentrantCall => (66, "Reentrant call rejected"),
+            CircleError::Overpayment => (67, "Amount exceeds expected contribution"),
+            CircleError::Underpayment => (68, "Amount is less than expected contribution"),
+            CircleError::TransferFailed => (69, "Token transfer failed"),
+            CircleError::MetadataImmutable => (70, "Field cannot be updated after circle creation"),
         };
         ErrorEnvelope::new(env, code, msg, details, request_id)
     }
@@ -331,10 +371,14 @@ impl CircleError {
             60 => Some(CircleError::DutchAuctionNotConfigured),
             61 => Some(CircleError::DutchAuctionExpired),
             62 => Some(CircleError::InvalidDutchConfig),
-            63 => Some(CircleError::Overpayment),
-            64 => Some(CircleError::Underpayment),
-            65 => Some(CircleError::TransferFailed),
-            66 => Some(CircleError::MetadataImmutable),
+            63 => Some(CircleError::AuctionNotResolved),
+            64 => Some(CircleError::InvalidContributionRound),
+            65 => Some(CircleError::DeadlineNotPassed),
+            66 => Some(CircleError::ReentrantCall),
+            67 => Some(CircleError::Overpayment),
+            68 => Some(CircleError::Underpayment),
+            69 => Some(CircleError::TransferFailed),
+            70 => Some(CircleError::MetadataImmutable),
             _ => None,
         }
     }
@@ -408,10 +452,25 @@ pub struct DisputeRaised {
 }
 #[contracttype]
 #[derive(Clone, Debug)]
+pub struct DisputeResolved {
+    pub member: Address,
+    pub resolution: u32,
+    pub outcome_code: u32,
+    pub resolved_by: Address,
+}
+#[contracttype]
+#[derive(Clone, Debug)]
 pub struct AuctionBidPlaced {
     pub bidder: Address,
     pub discount_bips: u32,
     pub round: u32,
+}
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct AuctionLoserRefunded {
+    pub bidder: Address,
+    pub round: u32,
+    pub amount: i128,
 }
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -434,8 +493,6 @@ pub struct OracleFallbackUsed {
     pub primary_oracle: Address,
     pub fallback_oracle: Address,
 }
-#[contracttype]
-#[derive(Clone, Debug)]
 /// #348: emitted when a token transfer in trigger_payout fails so listeners
 /// can detect the inconsistent state and initiate recovery.
 #[contracttype]
@@ -463,6 +520,8 @@ pub struct MetadataUpdated {
     pub updater: Address,
     pub field: soroban_sdk::String,
 }
+#[contracttype]
+#[derive(Clone, Debug)]
 pub struct LatePenaltyApplied {
     pub member: Address,
     pub round: u32,

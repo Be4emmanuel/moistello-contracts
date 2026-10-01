@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 
-mod types;
 mod contract;
+mod types;
 
 #[cfg(test)]
 mod test;
@@ -40,6 +40,25 @@ impl Staking {
 
     pub fn get_stake(env: Env, user: Address) -> Option<types::StakePosition> {
         contract::get_stake(&env, &user)
+    }
+
+    /// Query stake age, start ledger, unlock ledger, amount, and accrued rewards for an account
+    pub fn query_stake_info(env: Env, account: Address) -> types::StakeInfo {
+        contract::query_stake_info(&env, &account)
+    }
+
+    pub fn top_up_stake(
+        env: Env,
+        user: Address,
+        additional_amount: i128,
+    ) -> Result<(), types::StakingError> {
+        contract::top_up_stake(&env, &user, additional_amount)
+    }
+
+    /// Query path for unlock eligibility. Uses the same inclusive boundary
+    /// as `unstake` (`now >= unlock_time`).
+    pub fn is_stake_unlocked(env: Env, user: Address) -> bool {
+        contract::is_stake_unlocked(&env, &user)
     }
 
     pub fn get_unbonding(env: Env, user: Address) -> Option<types::UnbondingPosition> {
@@ -81,8 +100,23 @@ impl Staking {
         contract::unpause(&env, &admin)
     }
 
-    pub fn update_admin(env: Env, current_admin: Address, new_admin: Address) -> Result<(), types::StakingError> {
+    pub fn update_admin(
+        env: Env,
+        current_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), types::StakingError> {
         contract::update_admin(&env, &current_admin, &new_admin)
+    }
+
+    /// #523 — Slash a staker's collateral proportional to shortfall.
+    /// Returns the actual amount slashed (min of shortfall and stake).
+    pub fn slash(
+        env: Env,
+        admin: Address,
+        user: Address,
+        shortfall: i128,
+    ) -> Result<i128, types::StakingError> {
+        contract::slash(&env, &admin, &user, shortfall)
     }
 }
 

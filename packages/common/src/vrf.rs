@@ -30,14 +30,13 @@
 ///
 /// ## Usage in Circle Payouts
 ///
-/// The circle contract calls `shuffle_positions(env, n)` to generate a random
+/// The circle contract calls `shuffle_positions(env, n, base_nonce)` to generate a random
 /// permutation of payout positions. Each position is derived from a separate
 /// VRF evaluation with an incremented counter, ensuring each position's
 /// randomness is independently derived.
 ///
 /// For enhanced security, the admin can sign VRF outputs off-chain and callers
 /// can verify via `verify_vrf()` before accepting the shuffled order.
-
 use soroban_sdk::{contracterror, contractevent, symbol_short, Address, Bytes, BytesN, Env, Vec};
 
 // ── Storage keys ──────────────────────────────────────────────────────────
@@ -47,10 +46,11 @@ const SALT_KEY: soroban_sdk::Symbol = symbol_short!("vrf_salt");
 const COUNTER_KEY: soroban_sdk::Symbol = symbol_short!("vrf_ctr");
 /// Address authorized to propose/activate VRF key rotations.
 const OWNER_KEY: soroban_sdk::Symbol = symbol_short!("vrf_ownr");
-/// Proposed (pending) new Ed25519 admin public key, awaiting activation.
 const PENDING_KEY: soroban_sdk::Symbol = symbol_short!("vrf_pend");
 /// Ledger timestamp at/after which the pending key rotation may be activated.
 const PENDING_AT_KEY: soroban_sdk::Symbol = symbol_short!("vrf_pndat");
+/// Tracks the last used input seed/nonce to prevent replay
+const NONCE_KEY: soroban_sdk::Symbol = symbol_short!("vrf_nonce");
 
 // ── Errors ────────────────────────────────────────────────────────────────
 
@@ -72,6 +72,8 @@ pub enum VrfError {
     NoPendingRotation = 6,
     /// The proposed rotation's activation delay has not elapsed yet.
     ActivationNotReady = 7,
+    /// The provided nonce/input_seed has already been used or is not strictly increasing.
+    Replay = 8,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────
@@ -133,7 +135,11 @@ pub struct VrfFulfilled {
 ///
 /// # Errors
 /// * `VrfError::AlreadyInitialized` if called more than once
-pub fn init_vrf(env: &Env, admin_key: Option<&BytesN<32>>, owner: &Address) -> Result<(), VrfError> {
+pub fn init_vrf(
+    env: &Env,
+    admin_key: Option<&BytesN<32>>,
+    owner: &Address,
+) -> Result<(), VrfError> {
     if env.storage().instance().has(&ADMIN_KEY) || env.storage().instance().has(&OWNER_KEY) {
         return Err(VrfError::AlreadyInitialized);
     }
@@ -187,7 +193,9 @@ pub fn propose_key_rotation(
         .checked_add(activation_delay_secs)
         .ok_or(VrfError::Overflow)?;
     env.storage().instance().set(&PENDING_KEY, new_key);
-    env.storage().instance().set(&PENDING_AT_KEY, &activation_time);
+    env.storage()
+        .instance()
+        .set(&PENDING_AT_KEY, &activation_time);
     VrfKeyRotationProposed {
         new_key: new_key.clone(),
         activation_time,
@@ -260,6 +268,16 @@ pub fn activate_key_rotation(env: &Env, caller: &Address) -> Result<(), VrfError
 /// * `VrfError::NotInitialized` if `init_vrf` has not been called
 /// * `VrfError::Overflow` if the internal counter overflows
 pub fn evaluate_vrf(env: &Env, input_seed: u32) -> Result<u32, VrfError> {
+    // Replay protection: each input_seed (nonce) must be strictly greater
+    // than the last used one. The very first call (last_nonce absent) is
+    // always allowed regardless of input_seed value.
+    if let Some(last_nonce) = env.storage().instance().get::<_, u32>(&NONCE_KEY) {
+        if input_seed <= last_nonce {
+            return Err(VrfError::Replay);
+        }
+    }
+    env.storage().instance().set(&NONCE_KEY, &input_seed);
+
     let counter: u32 = env
         .storage()
         .instance()
@@ -351,16 +369,19 @@ pub fn verify_vrf(
 /// # Arguments
 /// * `env` - Soroban environment
 /// * `n` - Number of positions to shuffle (must be > 0)
+/// * `base_nonce` - Starting nonce for the VRF evaluations. Must be > last used nonce.
 ///
 /// # Returns
 /// A `Vec<u32>` containing the shuffled positions.
 ///
 /// # Errors
 /// * `VrfError::NotInitialized` if `init_vrf` has not been called
-pub fn shuffle_positions(env: &Env, n: u32) -> Result<Vec<u32>, VrfError> {
+/// * `VrfError::Replay` if the nonce is not strictly increasing
+pub fn shuffle_positions(env: &Env, n: u32, base_nonce: u32) -> Result<Vec<u32>, VrfError> {
     let mut shuffled = Vec::new(env);
     for i in 0..n {
-        let vrf_val = evaluate_vrf(env, i)?;
+        let seed = base_nonce.checked_add(i).ok_or(VrfError::Overflow)?;
+        let vrf_val = evaluate_vrf(env, seed)?;
         let pos = vrf_val % n;
         shuffled.push_back(pos);
     }
@@ -369,20 +390,21 @@ pub fn shuffle_positions(env: &Env, n: u32) -> Result<Vec<u32>, VrfError> {
 
 /// Generate a pseudo-random `u32` in `[0, max)` using VRF.
 ///
-/// Evaluates the VRF with `input_seed = 0` and takes the result modulo `max`.
+/// Evaluates the VRF with `input_seed = nonce` and takes the result modulo `max`.
 /// This is a convenience wrapper for single-value random generation.
 ///
 /// # Arguments
 /// * `env` - Soroban environment
 /// * `max` - Upper bound (exclusive). If 0, returns 0.
+/// * `nonce` - Strictly increasing nonce to prevent replay
 ///
 /// # Returns
 /// A `u32` in the range `[0, max)`.
-pub fn random_in_range(env: &Env, max: u32) -> Result<u32, VrfError> {
+pub fn random_in_range(env: &Env, max: u32, nonce: u32) -> Result<u32, VrfError> {
     if max == 0 {
         return Ok(0);
     }
-    let vrf_val = evaluate_vrf(env, 0)?;
+    let vrf_val = evaluate_vrf(env, nonce)?;
     Ok(vrf_val % max)
 }
 
@@ -390,7 +412,8 @@ pub fn random_in_range(env: &Env, max: u32) -> Result<u32, VrfError> {
 
 /// Compute the VRF hash deterministically from inputs.
 ///
-/// SHA-256(input_seed:u32 ++ salt:32bytes ++ counter:u32) → first 4 bytes → u32
+/// SHA-256(input_seed:u32 ++ salt:32bytes ++ counter:u32) → folds all 8 4-byte
+/// segments (all 32 bytes) together via XOR to preserve full 256-bit entropy.
 fn compute_vrf_hash(
     env: &Env,
     input_seed: u32,
@@ -400,8 +423,17 @@ fn compute_vrf_hash(
     let hash_bytes = hash_to_bytes(env, input_seed, salt, counter);
     let hash = env.crypto().sha256(&hash_bytes);
     let array = hash.to_array();
-    Ok(u32::from_le_bytes([array[0], array[1], array[2], array[3]])
-        .wrapping_add(u32::from_le_bytes([array[4], array[5], array[6], array[7]])))
+    let mut result = 0u32;
+    for i in 0..8 {
+        let chunk = [
+            array[i * 4],
+            array[i * 4 + 1],
+            array[i * 4 + 2],
+            array[i * 4 + 3],
+        ];
+        result ^= u32::from_le_bytes(chunk);
+    }
+    Ok(result)
 }
 
 /// Build the pre-hash byte sequence: input_seed(4) ++ salt(32) ++ counter(4)

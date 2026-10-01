@@ -254,4 +254,148 @@ mod tests {
             Err(GovernanceError::InvalidConfig)
         );
     }
+
+    #[test]
+    fn test_delegation_applies_at_vote_time_and_rejects_chains() {
+        let env = Env::default();
+        let (client, admin) = setup(&env);
+        let action = governance::types::ProposalAction {
+            target_contract: admin.clone(),
+            method: Symbol::new(&env, "noop"),
+            args: Vec::new(&env),
+        };
+        let description = BytesN::from_array(&env, &[9u8; 32]);
+        let id = client.create_proposal(
+            &admin,
+            &create_config().proposal_deposit,
+            &action,
+            &description,
+        );
+
+        let delegator = Address::generate(&env);
+        let delegatee = Address::generate(&env);
+        let third = Address::generate(&env);
+
+        assert_eq!(
+            client.try_delegate(&delegator, &delegator),
+            Err(Ok(GovernanceError::CircularDelegation))
+        );
+        client.delegate(&delegator, &delegatee);
+        assert_eq!(
+            client.try_delegate(&delegatee, &third),
+            Err(Ok(GovernanceError::CircularDelegation))
+        );
+        assert_eq!(
+            client.try_delegate(&third, &delegator),
+            Err(Ok(GovernanceError::CircularDelegation))
+        );
+        assert_eq!(
+            client.try_cast_vote(&delegator, &id, &VoteType::For),
+            Err(Ok(GovernanceError::Unauthorized))
+        );
+
+        client.cast_vote(&delegatee, &id, &VoteType::For);
+        let proposal = client.get_proposal(&id);
+        assert_eq!(proposal.votes_for, 2);
+
+        client.revoke_delegation(&delegator);
+        let id2 = client.create_proposal(
+            &admin,
+            &create_config().proposal_deposit,
+            &action,
+            &description,
+        );
+        client.cast_vote(&delegatee, &id2, &VoteType::For);
+        assert_eq!(client.get_proposal(&id2).votes_for, 1);
+        client.cast_vote(&delegator, &id2, &VoteType::Against);
+        assert_eq!(client.get_proposal(&id2).votes_against, 1);
+    }
+
+    #[test]
+    fn test_proposal_metadata_page_paginates_without_status_filter() {
+        let env = Env::default();
+        let (client, admin) = setup(&env);
+        let action = governance::types::ProposalAction {
+            target_contract: admin.clone(),
+            method: Symbol::new(&env, "noop"),
+            args: Vec::new(&env),
+        };
+        let description = BytesN::from_array(&env, &[3u8; 32]);
+        let id = client.create_proposal(
+            &admin,
+            &create_config().proposal_deposit,
+            &action,
+            &description,
+        );
+
+        // Attempt to expire while active and before voting period + execution window ends
+        let result = client.try_expire_proposal(&id);
+        assert_eq!(result, Err(Ok(GovernanceError::ProposalNotExpired)));
+    }
+
+    #[test]
+    fn test_expire_proposal_past_deadline_succeeds_with_refund() {
+        let env = Env::default();
+        let (client, admin) = setup(&env);
+        let config = create_config();
+        let action = governance::types::ProposalAction {
+            target_contract: admin.clone(),
+            method: Symbol::new(&env, "noop"),
+            args: Vec::new(&env),
+        };
+        let description = BytesN::from_array(&env, &[4u8; 32]);
+        let id = client.create_proposal(&admin, &config.proposal_deposit, &action, &description);
+
+        // Advance timestamp past voting_ends_at + PROPOSAL_EXECUTION_WINDOW (7 days = 604,800s)
+        let execution_window = 604_800u64;
+        let expire_time =
+            env.ledger().timestamp() + config.voting_period_seconds + execution_window + 1;
+        env.ledger().set_timestamp(expire_time);
+
+        client.expire_proposal(&id);
+
+        let proposal = client.get_proposal(&id);
+        assert_eq!(proposal.status, ProposalStatus::Expired);
+
+        // Expired proposals can be queried by status
+        let expired_list = client.get_proposals(&ProposalStatus::Expired, &10);
+        assert_eq!(expired_list.len(), 1);
+        assert_eq!(expired_list.get(0).unwrap().id, id);
+
+        let first_description = BytesN::from_array(&env, &[1u8; 32]);
+        let second_description = BytesN::from_array(&env, &[2u8; 32]);
+        let third_description = BytesN::from_array(&env, &[3u8; 32]);
+        client.create_proposal(
+            &admin,
+            &create_config().proposal_deposit,
+            &action,
+            &first_description,
+        );
+        client.create_proposal(
+            &admin,
+            &create_config().proposal_deposit,
+            &action,
+            &second_description,
+        );
+        client.create_proposal(
+            &admin,
+            &create_config().proposal_deposit,
+            &action,
+            &third_description,
+        );
+
+        let first_page = client.get_proposal_metadata_page(&0u64, &2u32);
+        assert_eq!(first_page.total, 4);
+        assert_eq!(first_page.next_cursor, 2);
+        assert_eq!(first_page.entries.len(), 2);
+        assert_eq!(first_page.entries.get(0).unwrap().id, 0);
+        assert_eq!(first_page.entries.get(1).unwrap().description, first_description);
+
+        let second_page = client.get_proposal_metadata_page(&first_page.next_cursor, &50u32);
+        assert_eq!(second_page.entries.len(), 2);
+        assert_eq!(second_page.entries.get(0).unwrap().id, 2);
+        assert_eq!(second_page.entries.get(0).unwrap().description, second_description);
+        assert_eq!(second_page.entries.get(1).unwrap().id, 3);
+        assert_eq!(second_page.entries.get(1).unwrap().description, third_description);
+    }
 }
