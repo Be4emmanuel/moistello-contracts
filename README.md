@@ -138,6 +138,9 @@ All arithmetic uses checked operations to prevent overflow/underflow.
 ### Gas Optimization
 All contracts under 50KB WASM target size. Optimized for minimal on-chain storage and batch operations.
 
+### Editor Config
+Editor settings are standardized in [`.editorconfig`](.editorconfig) (Rust: 4 spaces, LF; matches `.rustfmt.toml` and `cargo fmt --check` in CI). See [CONTRIBUTING.md](CONTRIBUTING.md#code-style) for code style details.
+
 ## Deployment
 
 ### Testnet
