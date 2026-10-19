@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod tests {
     use crate as escrow_swap;
+    use crate::types::EscrowError;
     use escrow_swap::{EscrowSwap, EscrowSwapArgs};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, BytesN, Env};
@@ -140,5 +141,115 @@ mod tests {
             .unwrap();
         let swaps = client.get_swaps();
         assert_eq!(swaps.len(), 1);
+    }
+
+    fn setup_paused(
+        env: &Env,
+    ) -> (escrow_swap::EscrowSwapClient<'_>, Address, Address, Address, Address, Address) {
+        env.mock_all_auths();
+        let admin = Address::generate(env);
+        let contract_id = env.register(EscrowSwap, EscrowSwapArgs::__constructor(&admin));
+        let client = escrow_swap::EscrowSwapClient::new(env, &contract_id);
+        let token_a = setup_token(env, &admin);
+        let token_b = setup_token(env, &admin);
+        let initiator = Address::generate(env);
+        let responder = Address::generate(env);
+        (client, admin, token_a, token_b, initiator, responder)
+    }
+
+    #[test]
+    fn test_pause_blocks_create_swap() {
+        let env = Env::default();
+        let (client, admin, token_a, token_b, initiator, responder) = setup_paused(&env);
+        let hash_lock = create_hash_lock(&env);
+        let time_lock = env.ledger().timestamp() + 3600;
+
+        client.pause(&admin);
+
+        // Mutations are rejected while paused; reads still work.
+        assert_eq!(
+            client.try_create_swap(
+                &initiator,
+                &responder,
+                &token_a,
+                &token_b,
+                &100_0000000i128,
+                &200_0000000i128,
+                &hash_lock,
+                &time_lock,
+            ),
+            Err(Ok(EscrowError::ContractPaused))
+        );
+        assert_eq!(client.get_swaps().len(), 0);
+
+        client.unpause(&admin);
+
+        let token_a_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_a);
+        token_a_admin.mint(&initiator, &100_0000000i128);
+        assert!(client
+            .try_create_swap(
+                &initiator,
+                &responder,
+                &token_a,
+                &token_b,
+                &100_0000000i128,
+                &200_0000000i128,
+                &hash_lock,
+                &time_lock,
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn test_pause_unpause_unauthorized() {
+        let env = Env::default();
+        let (client, _admin, ..) = setup_paused(&env);
+        let not_admin = Address::generate(&env);
+
+        assert!(client.try_pause(&not_admin).is_err());
+        assert!(client.try_unpause(&not_admin).is_err());
+    }
+
+    #[test]
+    fn test_pause_unpause_full_cycle() {
+        let env = Env::default();
+        let (client, admin, token_a, token_b, initiator, responder) = setup_paused(&env);
+        let token_a_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_a);
+        token_a_admin.mint(&initiator, &300_0000000i128);
+
+        for _ in 0..2 {
+            client.pause(&admin);
+            let hash_lock = create_hash_lock(&env);
+            let time_lock = env.ledger().timestamp() + 3600;
+            assert_eq!(
+                client.try_create_swap(
+                    &initiator,
+                    &responder,
+                    &token_a,
+                    &token_b,
+                    &100_0000000i128,
+                    &200_0000000i128,
+                    &hash_lock,
+                    &time_lock,
+                ),
+                Err(Ok(EscrowError::ContractPaused))
+            );
+            client.unpause(&admin);
+        }
+
+        let hash_lock = create_hash_lock(&env);
+        let time_lock = env.ledger().timestamp() + 3600;
+        assert!(client
+            .try_create_swap(
+                &initiator,
+                &responder,
+                &token_a,
+                &token_b,
+                &100_0000000i128,
+                &200_0000000i128,
+                &hash_lock,
+                &time_lock,
+            )
+            .is_ok());
     }
 }

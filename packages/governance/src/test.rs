@@ -499,4 +499,91 @@ mod tests {
         assert_eq!(second_page.entries.get(0).unwrap().id, 2);
         assert_eq!(second_page.entries.get(0).unwrap().description, second_description);
     }
+
+    fn pause_test_action(env: &Env, admin: &Address) -> governance::types::ProposalAction {
+        governance::types::ProposalAction {
+            target_contract: admin.clone(),
+            method: Symbol::new(env, "noop"),
+            args: Vec::new(env),
+        }
+    }
+
+    #[test]
+    fn test_pause_blocks_proposal_lifecycle() {
+        let env = Env::default();
+        let (client, admin) = setup(&env);
+        let config = create_config();
+        let action = pause_test_action(&env, &admin);
+        let description = BytesN::from_array(&env, &[9u8; 32]);
+        let id = client.create_proposal(&admin, &config.proposal_deposit, &action, &description);
+
+        client.pause(&admin);
+
+        // Every mutation is rejected while paused; reads still work.
+        assert_eq!(
+            client.try_create_proposal(&admin, &config.proposal_deposit, &action, &description),
+            Err(Ok(GovernanceError::ContractPaused))
+        );
+        assert_eq!(
+            client.try_cast_vote(&admin, &id, &VoteType::For),
+            Err(Ok(GovernanceError::ContractPaused))
+        );
+        assert_eq!(client.try_finalize_proposal(&id), Err(Ok(GovernanceError::ContractPaused)));
+        assert_eq!(
+            client.try_cancel_proposal(&admin, &id),
+            Err(Ok(GovernanceError::ContractPaused))
+        );
+        assert_eq!(client.try_expire_proposal(&id), Err(Ok(GovernanceError::ContractPaused)));
+        let mut new_config = create_config();
+        new_config.quorum_votes = 7u32;
+        assert_eq!(
+            client.try_queue_config_update(&admin, &new_config),
+            Err(Ok(GovernanceError::ContractPaused))
+        );
+        assert_eq!(client.try_execute_config_update(), Err(Ok(GovernanceError::ContractPaused)));
+        assert!(client.get_proposal(&id).id == id);
+
+        client.unpause(&admin);
+
+        // Mutations resume after unpause.
+        client.queue_config_update(&admin, &new_config);
+        assert_eq!(
+            client
+                .get_pending_config_update()
+                .unwrap()
+                .new_config
+                .quorum_votes,
+            7u32
+        );
+    }
+
+    #[test]
+    fn test_pause_unpause_unauthorized() {
+        let env = Env::default();
+        let (client, _admin) = setup(&env);
+        let not_admin = Address::generate(&env);
+
+        assert!(client.try_pause(&not_admin).is_err());
+        assert!(client.try_unpause(&not_admin).is_err());
+    }
+
+    #[test]
+    fn test_pause_unpause_full_cycle() {
+        let env = Env::default();
+        let (client, admin) = setup(&env);
+
+        for _ in 0..2 {
+            client.pause(&admin);
+            let mut new_config = create_config();
+            new_config.quorum_votes = 9u32;
+            assert_eq!(
+                client.try_queue_config_update(&admin, &new_config),
+                Err(Ok(GovernanceError::ContractPaused))
+            );
+            client.unpause(&admin);
+            client.queue_config_update(&admin, &new_config);
+            client.cancel_config_update(&admin);
+        }
+        assert!(client.get_pending_config_update().is_none());
+    }
 }

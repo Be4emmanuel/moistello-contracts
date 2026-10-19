@@ -1864,6 +1864,7 @@ pub fn dispute(env: &Env, member: &Address, evidence_hash: &BytesN<32>) -> Resul
 /// # Panics
 /// Never panics. All errors are returned as typed CircleError variants.
 pub fn resolve_dispute(env: &Env, admin: &Address, resolution: u32) -> Result<(), CircleError> {
+    pause::when_not_paused(env).map_err(|_| CircleError::ContractPaused)?;
     let s: Address = env
         .storage()
         .instance()
@@ -2697,6 +2698,7 @@ pub fn set_reputation_registry(
     admin: &Address,
     registry: &Address,
 ) -> Result<(), CircleError> {
+    pause::when_not_paused(env).map_err(|_| CircleError::ContractPaused)?;
     let s: Address = env
         .storage()
         .instance()
@@ -2715,6 +2717,7 @@ pub fn get_reputation_registry(env: &Env) -> Option<Address> {
     env.storage().instance().get(&DataKey::ReputationRegistry)
 }
 pub fn set_treasury(env: &Env, admin: &Address, treasury: &Address) -> Result<(), CircleError> {
+    pause::when_not_paused(env).map_err(|_| CircleError::ContractPaused)?;
     let s: Address = env
         .storage()
         .instance()
@@ -2824,6 +2827,7 @@ pub fn get_fee_bps(env: &Env) -> u32 {
 /// # Panics
 /// Never panics. All errors are returned as typed CircleError variants.
 pub fn set_token(env: &Env, admin: &Address, token: &Address) -> Result<(), CircleError> {
+    pause::when_not_paused(env).map_err(|_| CircleError::ContractPaused)?;
     let s: Address = env
         .storage()
         .instance()
@@ -2832,6 +2836,7 @@ pub fn set_token(env: &Env, admin: &Address, token: &Address) -> Result<(), Circ
     if admin != &s {
         return Err(CircleError::Unauthorized);
     }
+    admin.require_auth();
     let mut circle: Circle = env
         .storage()
         .instance()
@@ -2842,6 +2847,7 @@ pub fn set_token(env: &Env, admin: &Address, token: &Address) -> Result<(), Circ
     Ok(())
 }
 pub fn set_fee_bps(env: &Env, admin: &Address, fee_bps: u32) -> Result<(), CircleError> {
+    pause::when_not_paused(env).map_err(|_| CircleError::ContractPaused)?;
     let s: Address = env
         .storage()
         .instance()
@@ -2884,6 +2890,7 @@ pub fn set_allowlist(
     admin: &Address,
     allowlist: Vec<Address>,
 ) -> Result<(), CircleError> {
+    pause::when_not_paused(env).map_err(|_| CircleError::ContractPaused)?;
     let s: Address = env
         .storage()
         .instance()
@@ -2917,6 +2924,7 @@ pub fn get_allowlist(env: &Env) -> Vec<Address> {
 }
 
 pub fn set_oracle(env: &Env, admin: &Address, oracle: &Address) -> Result<(), CircleError> {
+    pause::when_not_paused(env).map_err(|_| CircleError::ContractPaused)?;
     let s: Address = env
         .storage()
         .instance()
@@ -2935,6 +2943,7 @@ pub fn set_fallback_oracle(
     admin: &Address,
     oracle: &Address,
 ) -> Result<(), CircleError> {
+    pause::when_not_paused(env).map_err(|_| CircleError::ContractPaused)?;
     let s: Address = env
         .storage()
         .instance()

@@ -376,6 +376,7 @@ fn remove_delegator(env: &Env, delegatee: &Address, delegator: &Address) {
 /// ends, execution is strictly locked until the full timelock delay has elapsed,
 /// ensuring sufficient review time and preventing surprise executions.
 pub fn finalize_proposal(env: &Env, proposal_id: u64) -> Result<(), GovernanceError> {
+    pause::when_not_paused(env).map_err(|_| GovernanceError::ContractPaused)?;
     let config: GovernanceConfig = env
         .storage()
         .instance()
@@ -502,6 +503,7 @@ pub fn cancel_proposal(
     caller: &Address,
     proposal_id: u64,
 ) -> Result<(), GovernanceError> {
+    pause::when_not_paused(env).map_err(|_| GovernanceError::ContractPaused)?;
     caller.require_auth();
     let mut proposal: Proposal = env
         .storage()
@@ -620,6 +622,7 @@ pub fn queue_config_update(
     admin: &Address,
     new_config: GovernanceConfig,
 ) -> Result<(), GovernanceError> {
+    pause::when_not_paused(env).map_err(|_| GovernanceError::ContractPaused)?;
     admin.require_auth();
     let s: Address = env
         .storage()
@@ -656,6 +659,7 @@ pub fn queue_config_update(
 /// Permissionless, like `execute_proposal`: the timelock is the control,
 /// not who happens to submit the transaction once it has elapsed.
 pub fn execute_config_update(env: &Env) -> Result<(), GovernanceError> {
+    pause::when_not_paused(env).map_err(|_| GovernanceError::ContractPaused)?;
     let pending: PendingConfigUpdate = env
         .storage()
         .instance()
@@ -679,6 +683,7 @@ pub fn execute_config_update(env: &Env) -> Result<(), GovernanceError> {
 /// Admin-only: cancel a queued config update at any point during (or after)
 /// the timelock, before it has been executed.
 pub fn cancel_config_update(env: &Env, admin: &Address) -> Result<(), GovernanceError> {
+    pause::when_not_paused(env).map_err(|_| GovernanceError::ContractPaused)?;
     admin.require_auth();
     let s: Address = env
         .storage()
@@ -803,6 +808,7 @@ pub fn set_staking_contract(
     admin: &Address,
     staking: &Address,
 ) -> Result<(), GovernanceError> {
+    pause::when_not_paused(env).map_err(|_| GovernanceError::ContractPaused)?;
     let s: Address = env
         .storage()
         .instance()

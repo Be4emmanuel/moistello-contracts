@@ -340,6 +340,58 @@ fn test_unpause_contract() {
 }
 
 #[test]
+fn test_pause_blocks_admin_and_slash_mutations() {
+    let (env, admin, user, token) = setup_test_env();
+    let staking_client = deploy_staking_contract(&env, &admin, &token);
+    let new_admin = Address::generate(&env);
+
+    // Pause contract
+    staking_client.pause(&admin);
+
+    // All admin-gated mutations are rejected while paused.
+    assert_eq!(
+        staking_client.try_update_admin(&admin, &new_admin),
+        Err(Ok(StakingError::ContractPaused))
+    );
+    assert_eq!(
+        staking_client.try_slash(&admin, &user, &100),
+        Err(Ok(StakingError::ContractPaused))
+    );
+    assert_eq!(
+        staking_client.try_set_slash_notice_period(&admin, &3600),
+        Err(Ok(StakingError::ContractPaused))
+    );
+    assert_eq!(
+        staking_client.try_create_slash_notice(&admin, &user, &100),
+        Err(Ok(StakingError::ContractPaused))
+    );
+    assert_eq!(
+        staking_client.try_cancel_slash(&admin, &user),
+        Err(Ok(StakingError::ContractPaused))
+    );
+    assert_eq!(
+        staking_client.try_execute_slash(&admin, &user),
+        Err(Ok(StakingError::ContractPaused))
+    );
+    // User-facing mutations are rejected too.
+    assert_eq!(staking_client.try_top_up(&user, &100), Err(Ok(StakingError::ContractPaused)));
+
+    // Unpause and verify admin mutation resumes.
+    staking_client.unpause(&admin);
+    assert!(staking_client.try_update_admin(&admin, &new_admin).is_ok());
+}
+
+#[test]
+fn test_pause_unpause_unauthorized() {
+    let (env, admin, _, token) = setup_test_env();
+    let staking_client = deploy_staking_contract(&env, &admin, &token);
+    let not_admin = Address::generate(&env);
+
+    assert!(staking_client.try_pause(&not_admin).is_err());
+    assert!(staking_client.try_unpause(&not_admin).is_err());
+}
+
+#[test]
 fn test_pause_unauthorized() {
     let (env, admin, user, token) = setup_test_env();
     let staking_client = deploy_staking_contract(&env, &admin, &token);

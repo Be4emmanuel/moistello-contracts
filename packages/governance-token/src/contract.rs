@@ -1,4 +1,5 @@
 use crate::types::*;
+use common::pause;
 use soroban_sdk::{symbol_short, Address, Env, Map, String};
 
 const ADMIN_KEY: soroban_sdk::Symbol = symbol_short!("admin");
@@ -43,6 +44,7 @@ pub fn initialize(
 }
 
 pub fn transfer(env: &Env, from: &Address, to: &Address, amount: i128) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     from.require_auth();
     if to == &env.current_contract_address() {
         return Err(TokenError::CannotTransferToSelf);
@@ -87,6 +89,7 @@ pub fn transfer_from(
     to: &Address,
     amount: i128,
 ) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     spender.require_auth();
     if to == &env.current_contract_address() {
         return Err(TokenError::CannotTransferToSelf);
@@ -162,6 +165,7 @@ pub fn approve(
     amount: i128,
     expiration_ledger: u32,
 ) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     owner.require_auth();
     // Reject negative amounts and zero amounts (#257)
     // Zero-approval wastes storage; use it only to revoke allowances
@@ -261,6 +265,7 @@ pub fn decimals(env: &Env) -> u32 {
 }
 
 pub fn mint(env: &Env, admin: &Address, to: &Address, amount: i128) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     admin.require_auth();
     require_admin(env, admin)?;
     if to == &env.current_contract_address() {
@@ -291,6 +296,7 @@ pub fn mint(env: &Env, admin: &Address, to: &Address, amount: i128) -> Result<()
 }
 
 pub fn burn(env: &Env, from: &Address, amount: i128) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     from.require_auth();
     validate_non_frozen(env, from)?;
     if amount <= 0 {
@@ -329,6 +335,7 @@ pub fn burn_from(
     from: &Address,
     amount: i128,
 ) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     admin.require_auth();
     require_admin(env, admin)?;
     validate_non_frozen(env, from)?;
@@ -375,6 +382,7 @@ pub fn clawback(
     from: &Address,
     amount: i128,
 ) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     admin.require_auth();
     require_admin(env, admin)?;
     if amount <= 0 {
@@ -404,6 +412,7 @@ pub fn clawback(
 }
 
 pub fn freeze(env: &Env, admin: &Address, account: &Address) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     admin.require_auth();
     require_admin(env, admin)?;
     let mut frozen: Map<Address, bool> = env
@@ -421,6 +430,7 @@ pub fn freeze(env: &Env, admin: &Address, account: &Address) -> Result<(), Token
 }
 
 pub fn unfreeze(env: &Env, admin: &Address, account: &Address) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     admin.require_auth();
     require_admin(env, admin)?;
     let mut frozen: Map<Address, bool> = env
@@ -447,6 +457,7 @@ pub fn is_frozen(env: &Env, account: &Address) -> bool {
 }
 
 pub fn set_admin(env: &Env, admin: &Address, new_admin: &Address) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     admin.require_auth();
     require_admin(env, admin)?;
     env.storage().instance().set(&ADMIN_KEY, new_admin);
@@ -458,6 +469,24 @@ pub fn get_admin(env: &Env) -> Result<Address, TokenError> {
         .instance()
         .get(&ADMIN_KEY)
         .ok_or(TokenError::NotInitialized)
+}
+
+/// Pauses the token, rejecting all mutations until unpaused.
+///
+/// Only the stored admin can pause. Emergency response for security incidents.
+/// Auth is performed once inside `common::pause` — calling `require_auth`
+/// here as well would double-authorize the same address in one frame.
+pub fn pause(env: &Env, admin: &Address) -> Result<(), TokenError> {
+    require_admin(env, admin)?;
+    pause::pause(env, admin).map_err(|_| TokenError::ContractPaused)
+}
+
+/// Unpauses the token, allowing mutations to resume.
+///
+/// Only the stored admin can unpause.
+pub fn unpause(env: &Env, admin: &Address) -> Result<(), TokenError> {
+    require_admin(env, admin)?;
+    pause::unpause(env, admin).map_err(|_| TokenError::ContractPaused)
 }
 
 fn require_admin(env: &Env, caller: &Address) -> Result<(), TokenError> {
@@ -488,6 +517,7 @@ fn validate_non_frozen(env: &Env, account: &Address) -> Result<(), TokenError> {
 /// # Authorization
 /// Requires `admin.require_auth()` and `admin` must be the stored admin.
 pub fn set_allowlist_mode(env: &Env, admin: &Address, enabled: bool) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     admin.require_auth();
     require_admin(env, admin)?;
     env.storage().instance().set(&ALLOWLIST_MODE_KEY, &enabled);
@@ -509,6 +539,7 @@ pub fn is_allowlist_mode_enabled(env: &Env) -> bool {
 /// # Authorization
 /// Requires `admin.require_auth()` and `admin` must be the stored admin.
 pub fn add_to_allowlist(env: &Env, admin: &Address, account: &Address) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     admin.require_auth();
     require_admin(env, admin)?;
     let mut list: Map<Address, bool> = env
@@ -534,6 +565,7 @@ pub fn remove_from_allowlist(
     admin: &Address,
     account: &Address,
 ) -> Result<(), TokenError> {
+    pause::when_not_paused(env).map_err(|_| TokenError::ContractPaused)?;
     admin.require_auth();
     require_admin(env, admin)?;
     let mut list: Map<Address, bool> = env
