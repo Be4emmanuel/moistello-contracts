@@ -56,6 +56,7 @@ require("lspconfig").rust_analyzer.setup({
 
 ## Code style
 
+- Editor defaults are defined in [`.editorconfig`](.editorconfig) (Rust: 4 spaces, LF line endings, UTF-8, final newline). Configure your editor to respect it to avoid format noise.
 - `cargo fmt` is enforced in CI (`make fmt-check`)
 - `cargo clippy --features testutils -- -D warnings` must pass
 - Keep contract functions documented with a single-line comment explaining the intent, not the implementation
