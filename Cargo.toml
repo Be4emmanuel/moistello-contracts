@@ -16,6 +16,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.91"
+license = "Apache-2.0"
 
 [workspace.dependencies]
 soroban-sdk = "26.0.0"
