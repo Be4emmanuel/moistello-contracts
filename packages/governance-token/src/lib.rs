@@ -118,6 +118,14 @@ impl GovernanceToken {
         contract::get_admin(&env)
     }
 
+    pub fn pause(env: Env, admin: Address) -> Result<(), TokenError> {
+        contract::pause(&env, &admin)
+    }
+
+    pub fn unpause(env: Env, admin: Address) -> Result<(), TokenError> {
+        contract::unpause(&env, &admin)
+    }
+
     pub fn set_allowlist_mode(env: Env, admin: Address, enabled: bool) -> Result<(), TokenError> {
         contract::set_allowlist_mode(&env, &admin, enabled)
     }

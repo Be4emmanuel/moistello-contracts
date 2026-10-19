@@ -553,6 +553,7 @@ pub fn update_admin(
     current_admin: &Address,
     new_admin: &Address,
 ) -> Result<(), StakingError> {
+    pause::when_not_paused(env).map_err(|_| StakingError::ContractPaused)?;
     let stored_admin: Address = env
         .storage()
         .instance()
@@ -591,6 +592,7 @@ pub fn slash(
     user: &Address,
     shortfall: i128,
 ) -> Result<i128, StakingError> {
+    pause::when_not_paused(env).map_err(|_| StakingError::ContractPaused)?;
     // Verify admin authorization
     let stored_admin: Address = env
         .storage()
@@ -821,6 +823,7 @@ pub fn set_slash_notice_period(
     admin: &Address,
     period_seconds: u64,
 ) -> Result<(), StakingError> {
+    pause::when_not_paused(env).map_err(|_| StakingError::ContractPaused)?;
     let stored_admin: Address = env
         .storage()
         .instance()
@@ -866,6 +869,7 @@ pub fn create_slash_notice(
     user: &Address,
     amount: i128,
 ) -> Result<(), StakingError> {
+    pause::when_not_paused(env).map_err(|_| StakingError::ContractPaused)?;
     let stored_admin: Address = env
         .storage()
         .instance()
@@ -935,6 +939,7 @@ pub fn create_slash_notice(
 /// * `Err(StakingError::NoActiveSlashNotice)` if no notice exists
 /// * `Err(StakingError::SlashNoticeExpired)` if the notice period has elapsed
 pub fn cancel_slash(env: &Env, admin: &Address, user: &Address) -> Result<(), StakingError> {
+    pause::when_not_paused(env).map_err(|_| StakingError::ContractPaused)?;
     let stored_admin: Address = env
         .storage()
         .instance()
@@ -985,6 +990,7 @@ pub fn cancel_slash(env: &Env, admin: &Address, user: &Address) -> Result<(), St
 /// * `Err(StakingError::NoActiveSlashNotice)` if no notice exists
 /// * `Err(StakingError::SlashNoticeExpired)* if the notice period has not elapsed
 pub fn execute_slash(env: &Env, admin: &Address, user: &Address) -> Result<(), StakingError> {
+    pause::when_not_paused(env).map_err(|_| StakingError::ContractPaused)?;
     let stored_admin: Address = env
         .storage()
         .instance()

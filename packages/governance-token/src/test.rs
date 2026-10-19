@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod tests {
     use crate as governance_token;
+    use crate::types::TokenError;
     use governance_token::{GovernanceToken, GovernanceTokenClient};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Address, Env, String};
@@ -492,5 +493,104 @@ mod tests {
         assert!(client
             .try_remove_from_allowlist(&not_admin, &account)
             .is_err());
+    }
+
+    #[test]
+    fn test_pause_blocks_transfer_and_mint() {
+        let env = Env::default();
+        let (admin, client) = setup(&env);
+        let alice = Address::generate(&env);
+        let bob = Address::generate(&env);
+        env.mock_all_auths();
+        client.mint(&admin, &alice, &1_000_0000000i128);
+
+        client.pause(&admin);
+
+        // Mutations are rejected while paused.
+        assert_eq!(
+            client.try_transfer(&alice, &bob, &100i128),
+            Err(Ok(TokenError::ContractPaused))
+        );
+        assert_eq!(client.try_mint(&admin, &bob, &100i128), Err(Ok(TokenError::ContractPaused)));
+        assert_eq!(client.try_burn(&alice, &100i128), Err(Ok(TokenError::ContractPaused)));
+        assert_eq!(
+            client.try_approve(&alice, &bob, &100i128, &0u32),
+            Err(Ok(TokenError::ContractPaused))
+        );
+        // Reads still work while paused.
+        assert_eq!(client.balance(&alice), 1_000_0000000i128);
+
+        client.unpause(&admin);
+
+        // Mutations resume after unpause.
+        client.transfer(&alice, &bob, &100i128);
+        assert_eq!(client.balance(&bob), 100i128);
+    }
+
+    #[test]
+    fn test_pause_blocks_admin_mutations() {
+        let env = Env::default();
+        let (admin, client) = setup(&env);
+        let holder = Address::generate(&env);
+        let account = Address::generate(&env);
+        env.mock_all_auths();
+        client.mint(&admin, &holder, &1_000_0000000i128);
+
+        client.pause(&admin);
+
+        assert_eq!(
+            client.try_burn_from(&admin, &holder, &100i128),
+            Err(Ok(TokenError::ContractPaused))
+        );
+        assert_eq!(
+            client.try_clawback(&admin, &holder, &100i128),
+            Err(Ok(TokenError::ContractPaused))
+        );
+        assert_eq!(client.try_freeze(&admin, &account), Err(Ok(TokenError::ContractPaused)));
+        assert_eq!(client.try_unfreeze(&admin, &account), Err(Ok(TokenError::ContractPaused)));
+        assert_eq!(client.try_set_admin(&admin, &account), Err(Ok(TokenError::ContractPaused)));
+        assert_eq!(
+            client.try_set_allowlist_mode(&admin, &true),
+            Err(Ok(TokenError::ContractPaused))
+        );
+        assert_eq!(
+            client.try_add_to_allowlist(&admin, &account),
+            Err(Ok(TokenError::ContractPaused))
+        );
+        assert_eq!(
+            client.try_remove_from_allowlist(&admin, &account),
+            Err(Ok(TokenError::ContractPaused))
+        );
+
+        client.unpause(&admin);
+        client.freeze(&admin, &account);
+        assert!(client.is_frozen(&account));
+    }
+
+    #[test]
+    fn test_pause_unpause_unauthorized() {
+        let env = Env::default();
+        let (_, client) = setup(&env);
+        let not_admin = Address::generate(&env);
+        env.mock_all_auths();
+
+        assert!(client.try_pause(&not_admin).is_err());
+        assert!(client.try_unpause(&not_admin).is_err());
+    }
+
+    #[test]
+    fn test_pause_unpause_full_cycle() {
+        let env = Env::default();
+        let (admin, client) = setup(&env);
+        let recipient = Address::generate(&env);
+        env.mock_all_auths();
+
+        for _ in 0..2 {
+            client.pause(&admin);
+            assert!(client.try_mint(&admin, &recipient, &100i128).is_err());
+            client.unpause(&admin);
+            client.mint(&admin, &recipient, &100i128);
+        }
+        assert_eq!(client.balance(&recipient), 200i128);
     }
 }

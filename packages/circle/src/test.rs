@@ -1264,6 +1264,52 @@ mod tests {
     }
 
     #[test]
+    fn test_pause_blocks_admin_setters_and_dispute_resolution() {
+        let env = Env::default();
+        let mut config = create_config(&env);
+        let admin = config.organizer.clone();
+
+        let (token, client) = setup_test_env(&env, &mut config);
+
+        env.mock_all_auths();
+
+        client.pause_circle(&admin);
+
+        // Every admin setter is rejected while paused; reads still work.
+        assert_eq!(client.try_set_fee_bps(&admin, &100u32), Err(Ok(CircleError::ContractPaused)));
+        assert_eq!(
+            client.try_set_treasury(&admin, &Address::generate(&env)),
+            Err(Ok(CircleError::ContractPaused))
+        );
+        assert_eq!(client.try_set_token(&admin, &token), Err(Ok(CircleError::ContractPaused)));
+        assert_eq!(
+            client.try_set_allowlist(&admin, &soroban_sdk::Vec::new(&env)),
+            Err(Ok(CircleError::ContractPaused))
+        );
+        assert_eq!(
+            client.try_set_oracle(&admin, &Address::generate(&env)),
+            Err(Ok(CircleError::ContractPaused))
+        );
+        assert_eq!(
+            client.try_set_fallback_oracle(&admin, &Address::generate(&env)),
+            Err(Ok(CircleError::ContractPaused))
+        );
+        assert_eq!(
+            client.try_set_reputation_registry(&admin, &Address::generate(&env)),
+            Err(Ok(CircleError::ContractPaused))
+        );
+        // Pause gate fires before the no-active-dispute check.
+        assert_eq!(client.try_resolve_dispute(&admin, &1u32), Err(Ok(CircleError::ContractPaused)));
+        assert_eq!(client.get_fee_bps(), 0u32);
+
+        client.unpause_circle(&admin);
+
+        // Setters resume after unpause.
+        client.set_fee_bps(&admin, &100u32);
+        assert_eq!(client.get_fee_bps(), 100u32);
+    }
+
+    #[test]
     fn test_round_config_snapshot_recorded_on_advance_and_queried() {
         let env = Env::default();
         let (client, admin, token, _treasury, m1) = setup_active_circle_with_token(&env);
