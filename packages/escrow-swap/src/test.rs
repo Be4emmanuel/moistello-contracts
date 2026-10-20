@@ -252,4 +252,90 @@ mod tests {
             )
             .is_ok());
     }
+
+    #[test]
+    fn test_accept_swap_already_accepted() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(EscrowSwap, EscrowSwapArgs::__constructor(&admin));
+        let client = escrow_swap::EscrowSwapClient::new(&env, &contract_id);
+
+        let token_a = setup_token(&env, &admin);
+        let token_b = setup_token(&env, &admin);
+
+        let initiator = Address::generate(&env);
+        let responder = Address::generate(&env);
+
+        let token_a_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_a);
+        token_a_admin.mint(&initiator, &100_0000000i128);
+        let token_b_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_b);
+        token_b_admin.mint(&responder, &200_0000000i128);
+
+        let hash_lock = create_hash_lock(&env);
+        let time_lock = env.ledger().timestamp() + 3600;
+        let swap_id = client
+            .try_create_swap(
+                &initiator,
+                &responder,
+                &token_a,
+                &token_b,
+                &100_0000000i128,
+                &200_0000000i128,
+                &hash_lock,
+                &time_lock,
+            )
+            .unwrap()
+            .unwrap();
+
+        let secret = BytesN::from_array(&env, &[1u8; 32]);
+        assert!(client.try_accept_swap(&swap_id, &responder, &secret).is_ok());
+
+        // Double-accept must be rejected with AlreadyAccepted
+        assert_eq!(
+            client.try_accept_swap(&swap_id, &responder, &secret),
+            Err(Ok(EscrowError::AlreadyAccepted))
+        );
+    }
+
+    #[test]
+    fn test_accept_swap_insufficient_balance() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(EscrowSwap, EscrowSwapArgs::__constructor(&admin));
+        let client = escrow_swap::EscrowSwapClient::new(&env, &contract_id);
+
+        let token_a = setup_token(&env, &admin);
+        let token_b = setup_token(&env, &admin);
+
+        let initiator = Address::generate(&env);
+        let responder = Address::generate(&env);
+
+        let token_a_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_a);
+        token_a_admin.mint(&initiator, &100_0000000i128);
+        // responder holds no token_b balance
+
+        let hash_lock = create_hash_lock(&env);
+        let time_lock = env.ledger().timestamp() + 3600;
+        let swap_id = client
+            .try_create_swap(
+                &initiator,
+                &responder,
+                &token_a,
+                &token_b,
+                &100_0000000i128,
+                &200_0000000i128,
+                &hash_lock,
+                &time_lock,
+            )
+            .unwrap()
+            .unwrap();
+
+        let secret = BytesN::from_array(&env, &[1u8; 32]);
+        assert_eq!(
+            client.try_accept_swap(&swap_id, &responder, &secret),
+            Err(Ok(EscrowError::InsufficientBalance))
+        );
+    }
 }
