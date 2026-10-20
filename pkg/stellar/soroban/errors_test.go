@@ -55,6 +55,7 @@ func TestClassifySorobanError_Circle(t *testing.T) {
 		{"Dutch Auction Expired", 61, apperrors.ErrDutchAuctionExpired},
 		{"Invalid Dutch Config", 62, apperrors.ErrInvalidDutchConfig},
 		{"Auction Not Resolved", 63, apperrors.ErrAuctionNotResolved},
+		{"Already Struck", 67, apperrors.ErrAlreadyStruck},
 	}
 
 	for _, tt := range tests {
