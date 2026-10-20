@@ -292,6 +292,38 @@ fn contributed_in(contributors: &Vec<Address>, member: &Address) -> bool {
     false
 }
 
+/// #503: records a strike against `round` for `member`.
+///
+/// A strike belongs to the round it was recorded in: a member who misses round
+/// N, or is reported late for it, is barred from re-entering round N. Their
+/// participation in later rounds is unaffected — a strike is a penalty marker
+/// for one round, not a lifetime ban, so `max_strikes` keeps its meaning as
+/// the number of tolerated defaults before the member is defaulted (#327).
+fn record_round_strike(env: &Env, round: u32, member: &Address) {
+    let mut strikes: Map<Address, u32> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::RoundStrikes(round))
+        .unwrap_or_else(|| Map::new(env));
+    let current = strikes.get(member.clone()).unwrap_or(0);
+    strikes.set(member.clone(), current.saturating_add(1));
+    env.storage()
+        .persistent()
+        .set(&DataKey::RoundStrikes(round), &strikes);
+}
+
+/// #503: whether `member` holds a strike recorded against `round`.
+///
+/// Consulted by `contribute` so a struck member cannot re-enter the round they
+/// were struck in.
+fn struck_in_round(env: &Env, round: u32, member: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get::<DataKey, Map<Address, u32>>(&DataKey::RoundStrikes(round))
+        .map(|strikes| strikes.get(member.clone()).unwrap_or(0) > 0)
+        .unwrap_or(false)
+}
+
 /// Timestamp at which on-time contributions for the current round stop being
 /// accepted. Mirrors the basis used inside `contribute` (`started_at` plus
 /// `contribution_deadline_seconds`) so enforcement and acceptance can never
@@ -399,7 +431,7 @@ pub fn check_contribution_deadline(env: &Env) -> Result<(), CircleError> {
     let contributors = round_contributors(env, round);
 
     // #325: the window has shut, so anyone still missing has defaulted.
-    strike_non_contributors(env, &circle, &contributors, &mut members);
+    strike_non_contributors(env, &circle, round, &contributors, &mut members);
 
     // Settle immediately rather than waiting on the admin, so a circle cannot
     // stall on members who are never going to pay. `trigger_payout_internal`
@@ -415,6 +447,7 @@ pub fn check_contribution_deadline(env: &Env) -> Result<(), CircleError> {
 fn strike_non_contributors(
     env: &Env,
     circle: &Circle,
+    round: u32,
     contributors: &Vec<Address>,
     members: &mut Vec<Member>,
 ) {
@@ -436,6 +469,9 @@ fn strike_non_contributors(
             updated.status = MEMBER_DEFAULTED;
             scoring::record_default(env, &updated.address);
         }
+        // #503: the strike is recorded against the round it was earned in, so
+        // the member cannot re-enter that round afterwards.
+        record_round_strike(env, round, &updated.address);
         env.events().publish(
             (env.current_contract_address(), symbol_short!("default")),
             MemberDefaulted {
@@ -463,6 +499,7 @@ fn strike_non_contributors(
 /// - `Err(CircleError::ContractPaused)` if the contract is paused
 /// - `Err(CircleError::NotActive)` if reentrancy guard fails or circle status is not ACTIVE
 /// - `Err(CircleError::RoundNotCurrent)` if provided round does not match current_round
+/// - `Err(CircleError::AlreadyStruck)` if the member already holds a strike recorded against this round
 /// - `Err(CircleError::ContributionMismatch)` if amount does not match configured contribution_amount
 /// - `Err(CircleError::NotMember)` if member has not joined the circle
 /// - `Err(CircleError::InvalidMemberStatus)` if member status is not ACTIVE
@@ -490,6 +527,13 @@ pub fn contribute(
         .ok_or(CircleError::NotInitialized)?;
     if circle.status != STATUS_ACTIVE {
         return Err(CircleError::NotActive);
+    }
+    // #503: a member who was struck in `round` may not re-enter that round.
+    // Checked before the round gate so the rejection names the strike instead
+    // of reporting the round as merely stale: the member is barred from the
+    // round they were struck in, even once the circle has moved past it.
+    if struck_in_round(env, round, member) {
+        return Err(CircleError::AlreadyStruck);
     }
     if round != circle.current_round {
         return Err(CircleError::RoundNotCurrent);
@@ -1630,6 +1674,8 @@ pub fn exit(env: &Env, member: &Address) -> Result<(), CircleError> {
 ///
 /// # Notes
 /// - Member must have a contribution marked as not on_time for the specified round
+/// - The strike is recorded against `round` (#503), so the member cannot
+///   re-enter the round they were reported for
 /// - If strikes >= max_strikes, member status is set to MEMBER_DEFAULTED
 /// - Default event is published when member is defaulted
 ///
@@ -1677,6 +1723,9 @@ pub fn report_late(
         if m.address == *late_member {
             m.strikes = m.strikes.wrapping_add(1);
             m.strikes = m.strikes.checked_add(1).ok_or(CircleError::InvalidAmount)?;
+            // #503: the strike belongs to the round it was reported for, so
+            // the member cannot re-enter that round afterwards.
+            record_round_strike(env, round, &m.address);
             if m.strikes >= circle.max_strikes {
                 m.status = MEMBER_DEFAULTED;
                 scoring::record_default(env, &m.address);

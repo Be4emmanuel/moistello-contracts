@@ -209,6 +209,14 @@ pub enum DataKey {
     /// immediately and long-running circles would otherwise accumulate an
     /// entry per round against the ledger-entry budget.
     RoundEnforced,
+    /// #503: members struck in a given round, mapped to the number of strikes
+    /// recorded against that round. A strike belongs to the round it was
+    /// recorded in, so a member who was struck in round N is barred from
+    /// re-entering round N but may still contribute to later rounds.
+    ///
+    /// The entry is only created for rounds in which a strike actually
+    /// happened, so a well-behaved circle never pays for it.
+    RoundStrikes(u32),
 }
 pub use common::types::ErrorEnvelope;
 #[contracterror]
@@ -276,6 +284,9 @@ pub enum CircleError {
     /// a contract that is on the call stack, so this should be unreachable
     /// while that host policy holds. See the module docs in `contract.rs`.
     ReentrantCall = 66,
+    /// #503: the member already holds a strike recorded against the round
+    /// they are trying to contribute to, so they may not re-enter it.
+    AlreadyStruck = 67,
 }
 
 impl CircleError {
@@ -336,6 +347,7 @@ impl CircleError {
             CircleError::InvalidContributionRound => (64, "Round has outstanding contributions"),
             CircleError::DeadlineNotPassed => (65, "Contribution deadline not passed"),
             CircleError::ReentrantCall => (66, "Reentrant call rejected"),
+            CircleError::AlreadyStruck => (67, "Member already struck"),
         };
         ErrorEnvelope::new(env, code, msg, details, request_id)
     }
@@ -392,6 +404,7 @@ impl CircleError {
             64 => Some(CircleError::InvalidContributionRound),
             65 => Some(CircleError::DeadlineNotPassed),
             66 => Some(CircleError::ReentrantCall),
+            67 => Some(CircleError::AlreadyStruck),
             _ => None,
         }
     }

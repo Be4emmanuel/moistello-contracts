@@ -46,6 +46,7 @@ var (
 	ErrDutchAuctionExpired         = errors.New("dutch auction expired")
 	ErrInvalidDutchConfig          = errors.New("invalid dutch auction configuration")
 	ErrAuctionNotResolved          = errors.New("auction not resolved")
+	ErrAlreadyStruck               = errors.New("member already holds a strike for this round")
 )
 
 // Factory domain errors mapped from FactoryError contract error variants.

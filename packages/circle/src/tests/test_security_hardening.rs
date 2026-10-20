@@ -668,4 +668,94 @@ fn test_guard_error_code_is_stable() {
     assert_eq!(CircleError::ReentrantCall as u32, 66);
     assert_eq!(CircleError::InvalidContributionRound as u32, 64);
     assert_eq!(CircleError::DeadlineNotPassed as u32, 65);
+    assert_eq!(CircleError::AlreadyStruck as u32, 67);
+}
+
+// ---------------------------------------------------------------------------
+// #503 — a member who already holds a strike may not re-enter that round.
+// ---------------------------------------------------------------------------
+
+/// strike-then-contribute: the member is struck first (the deadline sweep
+/// strikes a member who never paid for the round) and only then attempts to
+/// contribute to the round they were struck in.
+#[test]
+fn test_contribute_rejects_member_struck_in_round() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, members, _) = active_circle(&env, 2, 5);
+
+    // members[1] never pays for round 0.
+    client.contribute(&members[0], &CONTRIBUTION, &0u32);
+
+    // The window shuts, so the sweep strikes the missing member and records
+    // the strike against round 0.
+    close_window(&env);
+    client.check_contribution_deadline();
+    assert_eq!(strikes_of(&client, &members[1]), 1);
+
+    // Re-entering the round the member was struck in must be refused with the
+    // strike-specific error rather than a generic "round is stale" rejection.
+    assert_eq!(
+        client.try_contribute(&members[1], &CONTRIBUTION, &0u32),
+        Err(Ok(CircleError::AlreadyStruck)),
+        "a member struck in round 0 must not re-enter round 0"
+    );
+}
+
+/// contribute-then-strike: the member contributes (late) for the round, is then
+/// reported late — which records the strike against that same round — and only
+/// then attempts to contribute to it again.
+#[test]
+fn test_contribute_rejects_member_reported_late_in_round() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, members, _) = active_circle(&env, 2, 5);
+
+    // A late contribution (within grace) lands with on_time = false.
+    env.ledger().set_timestamp(T0 + DEADLINE + 1);
+    client.contribute(&members[1], &CONTRIBUTION, &0u32);
+
+    // Reporting that late contribution records a strike against round 0.
+    client
+        .try_report_late(&members[0], &members[1], &0u32)
+        .unwrap()
+        .unwrap();
+    assert!(strikes_of(&client, &members[1]) > 0);
+
+    // Re-contributing the same round must be rejected with the typed error.
+    assert_eq!(
+        client.try_contribute(&members[1], &CONTRIBUTION, &0u32),
+        Err(Ok(CircleError::AlreadyStruck)),
+        "a member reported late in round 0 must not re-enter round 0"
+    );
+}
+
+/// A strike belongs to the round it was earned in: it bars the member from
+/// re-entering that round, but never from contributing to later rounds. Without
+/// this the whole strike system would degenerate into a permanent ban.
+#[test]
+fn test_contribute_allows_next_round_after_strike() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, members, _) = active_circle(&env, 2, 5);
+
+    // members[1] misses round 0 and is struck by the sweep.
+    client.contribute(&members[0], &CONTRIBUTION, &0u32);
+    close_window(&env);
+    client.check_contribution_deadline();
+    assert_eq!(strikes_of(&client, &members[1]), 1);
+    assert_eq!(client.get_status().current_round, 1u32);
+
+    // The strike was recorded against round 0 only, so the member may still
+    // pay for the round the circle has moved on to.
+    env.ledger().set_timestamp(T0 + DEADLINE + 1);
+    client.contribute(&members[1], &CONTRIBUTION, &1u32);
+
+    let contributions = client.get_contributions(&members[1], &0u32, &10u32);
+    assert!(
+        contributions
+            .iter()
+            .any(|c| c.member == members[1] && c.round == 1u32),
+        "a strike on round 0 must not block the member's round 1 contribution"
+    );
 }
