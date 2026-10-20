@@ -3,6 +3,7 @@ use soroban_sdk::{symbol_short, token, Address, Env, Vec};
 use crate::types::*;
 use common::math;
 use common::pause;
+use common::reentrancy::ReentrancyGuard;
 
 /// Initialize the staking contract
 pub fn init(env: &Env, admin: &Address, token: &Address) {
@@ -37,6 +38,9 @@ pub fn stake(
 ) -> Result<(), StakingError> {
     // Check if contract is paused
     pause::when_not_paused(env).map_err(|_| StakingError::ContractPaused)?;
+
+    // Acquire reentrancy guard before any external calls
+    let _guard = ReentrancyGuard::new(env).map_err(|_| StakingError::ReentrantCall)?;
 
     user.require_auth();
 
@@ -227,6 +231,9 @@ pub fn claim(env: &Env, user: &Address) -> Result<(), StakingError> {
     // Check if contract is paused
     pause::when_not_paused(env).map_err(|_| StakingError::ContractPaused)?;
 
+    // Acquire reentrancy guard before any external calls
+    let _guard = ReentrancyGuard::new(env).map_err(|_| StakingError::ReentrantCall)?;
+
     user.require_auth();
 
     // Get unbonding position
@@ -361,6 +368,10 @@ pub fn top_up_stake(
     additional_amount: i128,
 ) -> Result<(), StakingError> {
     pause::when_not_paused(env).map_err(|_| StakingError::ContractPaused)?;
+
+    // Acquire reentrancy guard before any external calls
+    let _guard = ReentrancyGuard::new(env).map_err(|_| StakingError::ReentrantCall)?;
+
     user.require_auth();
 
     if additional_amount < MIN_STAKE_AMOUNT {
@@ -698,6 +709,9 @@ pub fn slash(
 /// `effective_start = now - (initial_amount * (now - start_time)) / new_total`.
 pub fn top_up(env: &Env, user: &Address, amount: i128) -> Result<(), StakingError> {
     pause::when_not_paused(env).map_err(|_| StakingError::ContractPaused)?;
+
+    // Acquire reentrancy guard before any external calls
+    let _guard = ReentrancyGuard::new(env).map_err(|_| StakingError::ReentrantCall)?;
 
     user.require_auth();
 

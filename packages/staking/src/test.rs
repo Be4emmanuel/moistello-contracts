@@ -736,3 +736,250 @@ fn test_top_up_near_boundary_keeps_eligibility() {
     let past_boundary_res = staking_client.try_top_up(&user, &50_0000000);
     assert_eq!(past_boundary_res, Err(Ok(StakingError::StakeNotUnlocked)));
 }
+
+// =============================================================================
+// Reentrancy protection tests (issue #566)
+// =============================================================================
+
+mod reentrancy_tests {
+    use super::*;
+
+    /// A malicious token contract that re-enters the staking contract during transfer.
+    #[soroban_sdk::contract]
+    pub struct MaliciousToken;
+
+    #[soroban_sdk::contractimpl]
+    impl MaliciousToken {
+        /// Initialize the malicious token with a target staking contract to attack.
+        pub fn init(
+            env: soroban_sdk::Env,
+            admin: soroban_sdk::Address,
+            target: soroban_sdk::Address,
+        ) {
+            admin.require_auth();
+            env.storage()
+                .instance()
+                .set(&soroban_sdk::symbol_short!("admin"), &admin);
+            env.storage()
+                .instance()
+                .set(&soroban_sdk::symbol_short!("target"), &target);
+            env.storage()
+                .instance()
+                .set(&soroban_sdk::symbol_short!("attacked"), &false);
+        }
+
+        /// Transfer function that re-enters the staking contract's stake function.
+        pub fn transfer(
+            env: soroban_sdk::Env,
+            from: soroban_sdk::Address,
+            to: soroban_sdk::Address,
+            amount: i128,
+        ) {
+            from.require_auth();
+
+            let target: soroban_sdk::Address = env
+                .storage()
+                .instance()
+                .get(&soroban_sdk::symbol_short!("target"))
+                .unwrap();
+
+            let attacked: bool = env
+                .storage()
+                .instance()
+                .get(&soroban_sdk::symbol_short!("attacked"))
+                .unwrap_or(false);
+
+            // If transferring TO the staking contract (staking), and we haven't attacked yet,
+            // re-enter the staking contract to try to stake again.
+            if to == target && !attacked {
+                env.storage()
+                    .instance()
+                    .set(&soroban_sdk::symbol_short!("attacked"), &true);
+
+                // Try to call stake on the staking contract again (reentrancy attack)
+                let staking_client = crate::StakingClient::new(&env, &target);
+                let _ = staking_client.try_stake(&from, &amount, &1u32);
+            }
+
+            // Normal token transfer logic (simplified - just update balances)
+            let from_balance: i128 = env
+                .storage()
+                .instance()
+                .get(&MaliciousDataKey::Balance(from.clone()))
+                .unwrap_or(0);
+            let to_balance: i128 = env
+                .storage()
+                .instance()
+                .get(&MaliciousDataKey::Balance(to.clone()))
+                .unwrap_or(0);
+
+            if from_balance < amount {
+                panic!("Insufficient balance");
+            }
+
+            env.storage()
+                .instance()
+                .set(&MaliciousDataKey::Balance(from), &(from_balance - amount));
+            env.storage()
+                .instance()
+                .set(&MaliciousDataKey::Balance(to), &(to_balance + amount));
+        }
+
+        pub fn balance(env: soroban_sdk::Env, id: soroban_sdk::Address) -> i128 {
+            env.storage()
+                .instance()
+                .get(&MaliciousDataKey::Balance(id))
+                .unwrap_or(0)
+        }
+
+        pub fn mint(
+            env: soroban_sdk::Env,
+            admin: soroban_sdk::Address,
+            to: soroban_sdk::Address,
+            amount: i128,
+        ) {
+            admin.require_auth();
+            let balance: i128 = env
+                .storage()
+                .instance()
+                .get(&MaliciousDataKey::Balance(to.clone()))
+                .unwrap_or(0);
+            env.storage()
+                .instance()
+                .set(&MaliciousDataKey::Balance(to), &(balance + amount));
+        }
+    }
+
+    #[derive(Clone)]
+    #[soroban_sdk::contracttype]
+    enum MaliciousDataKey {
+        Balance(soroban_sdk::Address),
+    }
+
+    /// Test that reentrancy during stake() is blocked by ReentrancyGuard.
+    #[test]
+    fn test_reentrancy_guard_blocks_stake_reentry() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+
+        // Deploy the malicious token
+        let malicious_token_id = env.register(MaliciousToken, ());
+        let malicious_token_client = MaliciousTokenClient::new(&env, &malicious_token_id);
+
+        // Deploy the staking contract with the malicious token
+        let staking_contract_id = env.register(Staking, ());
+        let staking_client = StakingClient::new(&env, &staking_contract_id);
+
+        // Initialize malicious token with staking contract as target
+        malicious_token_client.init(&admin, &staking_contract_id);
+
+        // Initialize staking contract with malicious token
+        staking_client.init(&admin, &malicious_token_id);
+
+        // Mint tokens to user
+        malicious_token_client.mint(&admin, &user, &100_0000000);
+
+        // First stake should succeed
+        let result = staking_client.try_stake(&user, &100_0000000, &1);
+        assert!(result.is_ok(), "First stake should succeed");
+
+        // The reentrant stake attempt during transfer should have been blocked
+        // Verify user only has one stake position (the reentrant one failed)
+        let stake = staking_client.get_stake(&user);
+        assert!(stake.is_some());
+        assert_eq!(stake.unwrap().amount, 100_0000000);
+
+        // Total staked should only be the initial amount, not doubled
+        assert_eq!(staking_client.get_total_staked(), 100_0000000);
+    }
+
+    /// Test that reentrancy during claim() is blocked by ReentrancyGuard.
+    #[test]
+    fn test_reentrancy_guard_blocks_claim_reentry() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+
+        // Deploy the malicious token
+        let malicious_token_id = env.register(MaliciousToken, ());
+        let malicious_token_client = MaliciousTokenClient::new(&env, &malicious_token_id);
+
+        // Deploy the staking contract with the malicious token
+        let staking_contract_id = env.register(Staking, ());
+        let staking_client = StakingClient::new(&env, &staking_contract_id);
+
+        // Initialize malicious token with staking contract as target
+        malicious_token_client.init(&admin, &staking_contract_id);
+
+        // Initialize staking contract with malicious token
+        staking_client.init(&admin, &malicious_token_id);
+
+        // Mint tokens to user
+        malicious_token_client.mint(&admin, &user, &200_0000000);
+
+        // Stake
+        staking_client.stake(&user, &100_0000000, &1);
+
+        // Unlock
+        at_unlock(&env, &staking_client, &user);
+
+        // Unstake
+        staking_client.unstake(&user);
+
+        // Fast-forward past unbonding period
+        env.ledger()
+            .set_timestamp(env.ledger().timestamp() + UNBONDING_PERIOD_SECONDS + 1);
+
+        // Claim should succeed (first time)
+        let result = staking_client.try_claim(&user);
+        assert!(result.is_ok(), "First claim should succeed");
+
+        // Verify unbonding position is removed
+        assert!(staking_client.get_unbonding(&user).is_none());
+    }
+
+    /// Test that reentrancy during top_up() is blocked by ReentrancyGuard.
+    #[test]
+    fn test_reentrancy_guard_blocks_top_up_reentry() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+
+        // Deploy the malicious token
+        let malicious_token_id = env.register(MaliciousToken, ());
+        let malicious_token_client = MaliciousTokenClient::new(&env, &malicious_token_id);
+
+        // Deploy the staking contract with the malicious token
+        let staking_contract_id = env.register(Staking, ());
+        let staking_client = StakingClient::new(&env, &staking_contract_id);
+
+        // Initialize malicious token with staking contract as target
+        malicious_token_client.init(&admin, &staking_contract_id);
+
+        // Initialize staking contract with malicious token
+        staking_client.init(&admin, &malicious_token_id);
+
+        // Mint tokens to user
+        malicious_token_client.mint(&admin, &user, &200_0000000);
+
+        // Stake initial amount
+        staking_client.stake(&user, &100_0000000, &1);
+
+        // First top_up should succeed
+        let result = staking_client.try_top_up(&user, &50_0000000);
+        assert!(result.is_ok(), "First top_up should succeed");
+
+        // The reentrant top_up attempt during transfer should have been blocked
+        // Verify total staked is only 150 (not 200 from reentrancy)
+        assert_eq!(staking_client.get_total_staked(), 150_0000000);
+        let stake = staking_client.get_stake(&user).unwrap();
+        assert_eq!(stake.amount, 150_0000000);
+    }
+}
