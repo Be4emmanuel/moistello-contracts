@@ -133,6 +133,7 @@ pub enum StakingError {
     NoActiveSlashNotice = 115,
     SlashNotAuthorized = 116,
     SlashNoticeExpired = 117,
+    ReentrantCall = 118,
 }
 
 /// Event emitted when tokens are staked
