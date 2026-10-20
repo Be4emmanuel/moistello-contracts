@@ -1,6 +1,15 @@
 use crate::types::*;
 use common::pause;
-use soroban_sdk::{token::Client as TokenClient, Address, BytesN, Env, Vec};
+use common::token_transfer::{safe_transfer, TokenTransferError};
+use soroban_sdk::{Address, BytesN, Env, Vec};
+
+fn map_transfer_error(e: TokenTransferError) -> EscrowError {
+    match e {
+        TokenTransferError::InsufficientBalance => EscrowError::InsufficientBalance,
+        TokenTransferError::Unauthorized => EscrowError::Unauthorized,
+        TokenTransferError::TransferFailed => EscrowError::InvalidAmount,
+    }
+}
 
 pub fn init(env: &Env, admin: &Address) -> Result<(), EscrowError> {
     admin.require_auth();
@@ -104,8 +113,14 @@ pub fn create_swap(
         .instance()
         .set(&DataKey::NextSwapId, &next_id.checked_add(1).ok_or(EscrowError::InvalidAmount)?);
 
-    let token_a_client = TokenClient::new(env, token_a);
-    token_a_client.transfer(initiator, &env.current_contract_address(), &initiator_amount);
+    safe_transfer(
+        env,
+        token_a,
+        initiator,
+        &env.current_contract_address(),
+        &initiator_amount,
+    )
+    .map_err(map_transfer_error)?;
 
     SwapCreated {
         id: next_id,
@@ -164,6 +179,9 @@ pub fn accept_swap(
     for i in 0..swaps.len() {
         let mut s = swaps.get(i).ok_or(EscrowError::VecAccessError)?;
         if s.id == id {
+            if s.status == STATUS_ACTIVE {
+                return Err(EscrowError::AlreadyAccepted);
+            }
             if s.status != STATUS_PENDING {
                 return Err(EscrowError::SwapNotActive);
             }
@@ -184,12 +202,14 @@ pub fn accept_swap(
             swaps.set(i, s.clone());
             found = true;
 
-            let token_b_client = TokenClient::new(env, &s.token_b);
-            token_b_client.transfer(
+            safe_transfer(
+                env,
+                &s.token_b,
                 responder,
                 &env.current_contract_address(),
                 &s.responder_amount,
-            );
+            )
+            .map_err(map_transfer_error)?;
 
             SwapAccepted {
                 id,
@@ -235,19 +255,23 @@ pub fn complete_swap(env: &Env, id: u64, caller: &Address) -> Result<(), EscrowE
             swaps.set(i, s.clone());
             found = true;
 
-            let token_a_client = TokenClient::new(env, &s.token_a);
-            token_a_client.transfer(
+            safe_transfer(
+                env,
+                &s.token_a,
                 &env.current_contract_address(),
                 &s.responder,
                 &s.initiator_amount,
-            );
+            )
+            .map_err(map_transfer_error)?;
 
-            let token_b_client = TokenClient::new(env, &s.token_b);
-            token_b_client.transfer(
+            safe_transfer(
+                env,
+                &s.token_b,
                 &env.current_contract_address(),
                 &s.initiator,
                 &s.responder_amount,
-            );
+            )
+            .map_err(map_transfer_error)?;
 
             SwapCompleted {
                 id,
@@ -296,20 +320,24 @@ pub fn cancel_swap(env: &Env, id: u64, caller: &Address) -> Result<(), EscrowErr
             swaps.set(i, s.clone());
             found = true;
 
-            let token_a_client = TokenClient::new(env, &s.token_a);
-            token_a_client.transfer(
+            safe_transfer(
+                env,
+                &s.token_a,
                 &env.current_contract_address(),
                 &s.initiator,
                 &s.initiator_amount,
-            );
+            )
+            .map_err(map_transfer_error)?;
 
             if previous_status == STATUS_ACTIVE {
-                let token_b_client = TokenClient::new(env, &s.token_b);
-                token_b_client.transfer(
+                safe_transfer(
+                    env,
+                    &s.token_b,
                     &env.current_contract_address(),
                     &s.responder,
                     &s.responder_amount,
-                );
+                )
+                .map_err(map_transfer_error)?;
             }
 
             SwapCancelled { id }.publish(env);
