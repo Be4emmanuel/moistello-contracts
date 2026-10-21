@@ -5,6 +5,117 @@ mod test;
 mod types;
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Vec};
 
+/// # Governance Contract
+///
+/// On-chain governance for Moistello protocol parameters and upgrades.
+/// Supports proposal creation, voting, execution, and config updates.
+///
+/// ## Example: Initialize governance
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance::GovernanceClient;
+///
+/// let env = Env::default();
+/// let admin = Address::from_string(&soroban_sdk::String::from_str(&env, "GAADMIN..."));
+/// let governance_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GAGOV..."));
+///
+/// // GovernanceConfig would be constructed here
+/// // let config = GovernanceConfig { ... };
+///
+/// let client = GovernanceClient::new(&env, &governance_id);
+/// // client.init(&admin, &config);
+/// ```
+///
+/// ## Example: Create a proposal
+///
+/// ```no_run
+/// use soroban_sdk::{Address, BytesN, Env, String};
+/// use governance::GovernanceClient;
+///
+/// let env = Env::default();
+/// let governance_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GAGOV..."));
+/// let proposer = Address::from_string(&soroban_sdk::String::from_str(&env, "GAPROPOSER..."));
+/// let deposit_amount = 100_0000000i128;
+/// // let action = ProposalAction::UpdateFeeBps { new_fee_bps: 200 };
+/// let description = BytesN::from_array(&env, &[0u8; 32]);
+///
+/// let client = GovernanceClient::new(&env, &governance_id);
+/// // let proposal_id = client.create_proposal(&proposer, &deposit_amount, &action, &description);
+/// ```
+///
+/// ## Example: Cast a vote
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance::GovernanceClient;
+///
+/// let env = Env::default();
+/// let governance_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GAGOV..."));
+/// let voter = Address::from_string(&soroban_sdk::String::from_str(&env, "GAVOTER..."));
+/// let proposal_id = 1u64;
+/// // let vote = VoteType::Yes;
+///
+/// let client = GovernanceClient::new(&env, &governance_id);
+/// // client.cast_vote(&voter, &proposal_id, &vote);
+/// ```
+///
+/// ## Example: Finalize a proposal
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance::GovernanceClient;
+///
+/// let env = Env::default();
+/// let governance_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GAGOV..."));
+/// let proposal_id = 1u64;
+///
+/// let client = GovernanceClient::new(&env, &governance_id);
+/// client.finalize_proposal(&proposal_id);
+/// ```
+///
+/// ## Example: Execute a proposal
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance::GovernanceClient;
+///
+/// let env = Env::default();
+/// let governance_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GAGOV..."));
+/// let proposal_id = 1u64;
+///
+/// let client = GovernanceClient::new(&env, &governance_id);
+/// client.execute_proposal(&proposal_id);
+/// ```
+///
+/// ## Example: Get proposal details
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance::GovernanceClient;
+///
+/// let env = Env::default();
+/// let governance_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GAGOV..."));
+/// let proposal_id = 1u64;
+///
+/// let client = GovernanceClient::new(&env, &governance_id);
+/// let proposal = client.get_proposal(&proposal_id);
+/// ```
+///
+/// ## Example: Delegate voting power
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance::GovernanceClient;
+///
+/// let env = Env::default();
+/// let governance_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GAGOV..."));
+/// let delegator = Address::from_string(&soroban_sdk::String::from_str(&env, "GADELEGATOR..."));
+/// let delegatee = Address::from_string(&soroban_sdk::String::from_str(&env, "GADELEGATEE..."));
+///
+/// let client = GovernanceClient::new(&env, &governance_id);
+/// client.delegate(&delegator, &delegatee);
+/// ```
 #[contract]
 pub struct Governance;
 #[contractimpl]

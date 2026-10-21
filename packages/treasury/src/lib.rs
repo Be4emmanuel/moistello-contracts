@@ -4,6 +4,101 @@ mod contract;
 mod test;
 mod types;
 use soroban_sdk::{contract, contractimpl, Address, Env};
+
+/// # Treasury Contract
+///
+/// Fee collection and fund management for Moistello circles.
+/// Collects fees from circles and allows admin withdrawals.
+///
+/// ## Example: Initialize the treasury
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use treasury::TreasuryClient;
+///
+/// let env = Env::default();
+/// let admin = Address::from_string(&soroban_sdk::String::from_str(&env, "GAADMIN..."));
+/// let token = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+/// let treasury_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATREASURY..."));
+///
+/// let client = TreasuryClient::new(&env, &treasury_id);
+/// client.init(&admin, &token);
+/// ```
+///
+/// ## Example: Deposit fee from a circle
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use treasury::TreasuryClient;
+///
+/// let env = Env::default();
+/// let treasury_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATREASURY..."));
+/// let from = Address::from_string(&soroban_sdk::String::from_str(&env, "GAFROM..."));
+/// let circle_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GACIRCLE..."));
+/// let amount = 100_0000000i128;
+///
+/// let client = TreasuryClient::new(&env, &treasury_id);
+/// client.deposit_fee(&from, &amount, &circle_id);
+/// ```
+///
+/// ## Example: Admin withdraw funds
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use treasury::TreasuryClient;
+///
+/// let env = Env::default();
+/// let treasury_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATREASURY..."));
+/// let admin = Address::from_string(&soroban_sdk::String::from_str(&env, "GAADMIN..."));
+/// let to = Address::from_string(&soroban_sdk::String::from_str(&env, "GATO..."));
+/// let amount = 50_0000000i128;
+///
+/// let client = TreasuryClient::new(&env, &treasury_id);
+/// client.withdraw(&admin, &to, &amount);
+/// ```
+///
+/// ## Example: Get treasury balance
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use treasury::TreasuryClient;
+///
+/// let env = Env::default();
+/// let treasury_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATREASURY..."));
+///
+/// let client = TreasuryClient::new(&env, &treasury_id);
+/// let balance = client.get_balance();
+/// ```
+///
+/// ## Example: Get all deposits
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use treasury::TreasuryClient;
+///
+/// let env = Env::default();
+/// let treasury_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATREASURY..."));
+///
+/// let client = TreasuryClient::new(&env, &treasury_id);
+/// let deposits = client.get_deposits();
+/// ```
+///
+/// ## Example: Rescue tokens (admin only)
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use treasury::TreasuryClient;
+///
+/// let env = Env::default();
+/// let treasury_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATREASURY..."));
+/// let admin = Address::from_string(&soroban_sdk::String::from_str(&env, "GAADMIN..."));
+/// let to = Address::from_string(&soroban_sdk::String::from_str(&env, "GATO..."));
+/// let token = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+/// let amount = 100_0000000i128;
+///
+/// let client = TreasuryClient::new(&env, &treasury_id);
+/// client.rescue_tokens(&admin, &to, &token, &amount);
+/// ```
 #[contract]
 pub struct Treasury;
 #[contractimpl]

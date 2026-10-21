@@ -18,6 +18,97 @@ use soroban_sdk::{contract, contractimpl, Address, BytesN, Env};
 
 pub use types::CircleError;
 
+/// # Circle Contract
+///
+/// A rotating savings and credit association (ROSCA) implementation on Soroban.
+/// Members contribute a fixed amount each round, and one member receives the
+/// pool per round via random selection, fixed order, auction, or vote.
+///
+/// ## Example: Initialize a circle
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+///
+/// let env = Env::default();
+/// let admin = Address::from_string(&String::from_str(&env, "GAADMIN..."));
+/// let factory = Address::from_string(&String::from_str(&env, "GAFACTORY..."));
+/// let token = Address::from_string(&String::from_str(&env, "GATOKEN..."));
+/// let organizer = Address::from_string(&String::from_str(&env, "GAORG..."));
+///
+/// // CircleConfig would be constructed here in a real deployment
+/// // The factory deploys the contract and calls __constructor
+/// ```
+///
+/// ## Example: Join a circle
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use circle::CircleClient;
+///
+/// let env = Env::default();
+/// let circle_id = Address::from_string(&String::from_str(&env, "GACIRCLE..."));
+/// let member = Address::from_string(&String::from_str(&env, "GAMEMBER..."));
+///
+/// let client = CircleClient::new(&env, &circle_id);
+/// client.join(&member);
+/// ```
+///
+/// ## Example: Contribute to a round
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use circle::CircleClient;
+///
+/// let env = Env::default();
+/// let circle_id = Address::from_string(&String::from_str(&env, "GACIRCLE..."));
+/// let member = Address::from_string(&String::from_str(&env, "GAMEMBER..."));
+///
+/// let client = CircleClient::new(&env, &circle_id);
+/// client.contribute(&member, &100_0000000, &1); // amount, round
+/// ```
+///
+/// ## Example: Trigger payout for a round
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use circle::CircleClient;
+///
+/// let env = Env::default();
+/// let circle_id = Address::from_string(&String::from_str(&env, "GACIRCLE..."));
+/// let organizer = Address::from_string(&String::from_str(&env, "GAORG..."));
+///
+/// let client = CircleClient::new(&env, &circle_id);
+/// client.trigger_payout(&organizer, &1); // round
+/// ```
+///
+/// ## Example: Claim referral bonus
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use circle::CircleClient;
+///
+/// let env = Env::default();
+/// let circle_id = Address::from_string(&String::from_str(&env, "GACIRCLE..."));
+/// let referrer = Address::from_string(&String::from_str(&env, "GAREFERRER..."));
+///
+/// let client = CircleClient::new(&env, &circle_id);
+/// client.claim_referral_bonus(&referrer);
+/// ```
+///
+/// ## Example: Claim streak bonus
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use circle::CircleClient;
+///
+/// let env = Env::default();
+/// let circle_id = Address::from_string(&String::from_str(&env, "GACIRCLE..."));
+/// let member = Address::from_string(&String::from_str(&env, "GAMEMBER..."));
+///
+/// let client = CircleClient::new(&env, &circle_id);
+/// client.claim_streak_bonus(&member);
+/// ```
+
 #[contract]
 pub struct Circle;
 #[contractimpl]
