@@ -8,6 +8,155 @@ mod types;
 use crate::types::{AllowanceData, TokenError};
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
 
+/// # Governance Token Contract
+///
+/// ERC-20 compatible token with governance features (mint, burn, freeze, allowlist).
+/// Used for voting power in Moistello governance.
+///
+/// ## Example: Initialize the token
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance_token::GovernanceTokenClient;
+///
+/// let env = Env::default();
+/// let admin = Address::from_string(&soroban_sdk::String::from_str(&env, "GAADMIN..."));
+/// let token_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+///
+/// let client = GovernanceTokenClient::new(&env, &token_id);
+/// client.initialize(
+///     &admin,
+///     &soroban_sdk::String::from_str(&env, "Moistello Governance Token"),
+///     &soroban_sdk::String::from_str(&env, "MOIST"),
+///     &18,
+/// );
+/// ```
+///
+/// ## Example: Transfer tokens
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance_token::GovernanceTokenClient;
+///
+/// let env = Env::default();
+/// let token_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+/// let from = Address::from_string(&soroban_sdk::String::from_str(&env, "GAFROM..."));
+/// let to = Address::from_string(&soroban_sdk::String::from_str(&env, "GATO..."));
+/// let amount = 100_0000000i128;
+///
+/// let client = GovernanceTokenClient::new(&env, &token_id);
+/// client.transfer(&from, &to, &amount);
+/// ```
+///
+/// ## Example: Transfer from (with allowance)
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance_token::GovernanceTokenClient;
+///
+/// let env = Env::default();
+/// let token_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+/// let spender = Address::from_string(&soroban_sdk::String::from_str(&env, "GASPENDER..."));
+/// let from = Address::from_string(&soroban_sdk::String::from_str(&env, "GAFROM..."));
+/// let to = Address::from_string(&soroban_sdk::String::from_str(&env, "GATO..."));
+/// let amount = 100_0000000i128;
+///
+/// let client = GovernanceTokenClient::new(&env, &token_id);
+/// client.transfer_from(&spender, &from, &to, &amount);
+/// ```
+///
+/// ## Example: Approve spending
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance_token::GovernanceTokenClient;
+///
+/// let env = Env::default();
+/// let token_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+/// let owner = Address::from_string(&soroban_sdk::String::from_str(&env, "GAOWNER..."));
+/// let spender = Address::from_string(&soroban_sdk::String::from_str(&env, "GASPENDER..."));
+/// let amount = 100_0000000i128;
+/// let expiration_ledger = 1000u32;
+///
+/// let client = GovernanceTokenClient::new(&env, &token_id);
+/// client.approve(&owner, &spender, &amount, &expiration_ledger);
+/// ```
+///
+/// ## Example: Check balance
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance_token::GovernanceTokenClient;
+///
+/// let env = Env::default();
+/// let token_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+/// let account = Address::from_string(&soroban_sdk::String::from_str(&env, "GAACCOUNT..."));
+///
+/// let client = GovernanceTokenClient::new(&env, &token_id);
+/// let balance = client.balance(&account);
+/// ```
+///
+/// ## Example: Check allowance
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance_token::GovernanceTokenClient;
+///
+/// let env = Env::default();
+/// let token_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+/// let owner = Address::from_string(&soroban_sdk::String::from_str(&env, "GAOWNER..."));
+/// let spender = Address::from_string(&soroban_sdk::String::from_str(&env, "GASPENDER..."));
+///
+/// let client = GovernanceTokenClient::new(&env, &token_id);
+/// let allowance = client.allowance(&owner, &spender);
+/// ```
+///
+/// ## Example: Mint tokens (admin only)
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance_token::GovernanceTokenClient;
+///
+/// let env = Env::default();
+/// let token_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+/// let admin = Address::from_string(&soroban_sdk::String::from_str(&env, "GAADMIN..."));
+/// let to = Address::from_string(&soroban_sdk::String::from_str(&env, "GATO..."));
+/// let amount = 100_0000000i128;
+///
+/// let client = GovernanceTokenClient::new(&env, &token_id);
+/// client.mint(&admin, &to, &amount);
+/// ```
+///
+/// ## Example: Burn tokens
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance_token::GovernanceTokenClient;
+///
+/// let env = Env::default();
+/// let token_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+/// let from = Address::from_string(&soroban_sdk::String::from_str(&env, "GAFROM..."));
+/// let amount = 100_0000000i128;
+///
+/// let client = GovernanceTokenClient::new(&env, &token_id);
+/// client.burn(&from, &amount);
+/// ```
+///
+/// ## Example: Get token metadata
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use governance_token::GovernanceTokenClient;
+///
+/// let env = Env::default();
+/// let token_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+///
+/// let client = GovernanceTokenClient::new(&env, &token_id);
+/// let name = client.name();
+/// let symbol = client.symbol();
+/// let decimals = client.decimals();
+/// let total_supply = client.total_supply();
+/// ```
 #[contract]
 pub struct GovernanceToken;
 

@@ -4,6 +4,60 @@ mod contract;
 mod test;
 mod types;
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env};
+
+/// # Circle Factory Contract
+///
+/// Factory contract for deploying Circle contracts with consistent configuration
+/// and fee collection.
+///
+/// ## Example: Initialize the factory
+///
+/// ```no_run
+/// use soroban_sdk::{Address, BytesN, Env, String};
+/// use circle_factory::CircleFactoryClient;
+///
+/// let env = Env::default();
+/// let admin = Address::from_string(&soroban_sdk::String::from_str(&env, "GAADMIN..."));
+/// let fee_bps = 100; // 1%
+/// let wasm_hash = BytesN::from_array(&env, &[0u8; 32]);
+/// let organizer_rate_limit = 5;
+/// let rate_limit_period_secs = 3600;
+///
+/// let factory_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GAFACTORY..."));
+/// let client = CircleFactoryClient::new(&env, &factory_id);
+/// client.init(&admin, &fee_bps, &wasm_hash, &organizer_rate_limit, &rate_limit_period_secs);
+/// ```
+///
+/// ## Example: Deploy a new circle
+///
+/// ```no_run
+/// use soroban_sdk::{Address, BytesN, Env, String};
+/// use circle_factory::CircleFactoryClient;
+///
+/// let env = Env::default();
+/// let factory_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GAFACTORY..."));
+/// let organizer = Address::from_string(&soroban_sdk::String::from_str(&env, "GAORG..."));
+/// let token = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+///
+/// // CircleConfig would be constructed here
+/// // let config = CircleConfig { ... };
+///
+/// let client = CircleFactoryClient::new(&env, &factory_id);
+/// // let circle_address = client.deploy_circle(&config);
+/// ```
+///
+/// ## Example: Get all deployed circles
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use circle_factory::CircleFactoryClient;
+///
+/// let env = Env::default();
+/// let factory_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GAFACTORY..."));
+///
+/// let client = CircleFactoryClient::new(&env, &factory_id);
+/// let registry = client.get_circles();
+/// ```
 #[contract]
 pub struct CircleFactory;
 #[contractimpl]

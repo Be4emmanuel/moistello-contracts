@@ -8,6 +8,126 @@ mod test;
 
 use soroban_sdk::{contract, contractimpl, Address, Env};
 
+/// # Staking Contract
+///
+/// Token staking with time-weighted voting power for Moistello governance.
+/// Supports staking, unstaking, claiming rewards, and slashing.
+///
+/// ## Example: Initialize staking
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use staking::StakingClient;
+///
+/// let env = Env::default();
+/// let admin = Address::from_string(&soroban_sdk::String::from_str(&env, "GAADMIN..."));
+/// let token = Address::from_string(&soroban_sdk::String::from_str(&env, "GATOKEN..."));
+/// let staking_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GASTAKING..."));
+///
+/// let client = StakingClient::new(&env, &staking_id);
+/// client.init(&admin, &token);
+/// ```
+///
+/// ## Example: Stake tokens
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use staking::StakingClient;
+///
+/// let env = Env::default();
+/// let staking_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GASTAKING..."));
+/// let user = Address::from_string(&soroban_sdk::String::from_str(&env, "GAUSER..."));
+/// let amount = 100_0000000i128;
+/// let period_months = 12u32;
+///
+/// let client = StakingClient::new(&env, &staking_id);
+/// client.stake(&user, &amount, &period_months);
+/// ```
+///
+/// ## Example: Unstake tokens
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use staking::StakingClient;
+///
+/// let env = Env::default();
+/// let staking_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GASTAKING..."));
+/// let user = Address::from_string(&soroban_sdk::String::from_str(&env, "GAUSER..."));
+///
+/// let client = StakingClient::new(&env, &staking_id);
+/// client.unstake(&user);
+/// ```
+///
+/// ## Example: Claim rewards
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use staking::StakingClient;
+///
+/// let env = Env::default();
+/// let staking_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GASTAKING..."));
+/// let user = Address::from_string(&soroban_sdk::String::from_str(&env, "GAUSER..."));
+///
+/// let client = StakingClient::new(&env, &staking_id);
+/// client.claim(&user);
+/// ```
+///
+/// ## Example: Get voting power
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use staking::StakingClient;
+///
+/// let env = Env::default();
+/// let staking_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GASTAKING..."));
+/// let user = Address::from_string(&soroban_sdk::String::from_str(&env, "GAUSER..."));
+///
+/// let client = StakingClient::new(&env, &staking_id);
+/// let voting_power = client.get_voting_power(&user);
+/// ```
+///
+/// ## Example: Get stake position
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use staking::StakingClient;
+///
+/// let env = Env::default();
+/// let staking_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GASTAKING..."));
+/// let user = Address::from_string(&soroban_sdk::String::from_str(&env, "GAUSER..."));
+///
+/// let client = StakingClient::new(&env, &staking_id);
+/// let stake = client.get_stake(&user);
+/// ```
+///
+/// ## Example: Get total staked
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use staking::StakingClient;
+///
+/// let env = Env::default();
+/// let staking_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GASTAKING..."));
+///
+/// let client = StakingClient::new(&env, &staking_id);
+/// let total = client.get_total_staked();
+/// ```
+///
+/// ## Example: Create slash notice
+///
+/// ```no_run
+/// use soroban_sdk::{Address, Env, String};
+/// use staking::StakingClient;
+///
+/// let env = Env::default();
+/// let staking_id = Address::from_string(&soroban_sdk::String::from_str(&env, "GASTAKING..."));
+/// let admin = Address::from_string(&soroban_sdk::String::from_str(&env, "GAADMIN..."));
+/// let user = Address::from_string(&soroban_sdk::String::from_str(&env, "GAUSER..."));
+/// let amount = 100_0000000i128;
+///
+/// let client = StakingClient::new(&env, &staking_id);
+/// client.create_slash_notice(&admin, &user, &amount);
+/// ```
 #[contract]
 pub struct Staking;
 
